@@ -10,3 +10,5 @@ This task can be approached in a variety of ways, yielding a number of different
 ![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
 
 Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+
+The inventors have filed a PCT for this work (WO2023215936A1). This code is free to use for academic, non-commerical use. For commercial use, please contact nicholas.hindley@sydney.edu.au.
