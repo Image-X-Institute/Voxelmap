@@ -1,5 +1,5 @@
-from voxelmap import layers
-from voxelmap.modelio import LoadableModel, store_config_args
+import layers
+from modelio import LoadableModel, store_config_args
 
 class Network(LoadableModel):
 
