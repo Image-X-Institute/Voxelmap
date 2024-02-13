@@ -5,7 +5,7 @@ The key idea behind this framework is that 2D views provide hints about 3D motio
 
 ![Proposed clinical workflow](https://github.com/Image-X-Institute/Voxelmap/blob/main/Workflow.jpg)
 
-This task can be approached in a variety of ways, yielding a number of different neural networks. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
+This task can be approached in a variety of ways, yielding a number of different network architectures. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
 
 ![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
 
