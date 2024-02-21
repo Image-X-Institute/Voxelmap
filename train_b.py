@@ -72,7 +72,7 @@ class SupervisedDataset(Dataset):
 
         return data
 
-# Generate train/test split
+# generate train/test split
 im_size = 128
 batch_size = 8
 dataset = SupervisedDataset(im_dir=im_dir, im_size=im_size)
@@ -81,7 +81,7 @@ trainset, valset = torch.utils.data.dataset.random_split(dataset, split)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
 valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
 
-# unet
+# set up network
 vxm_model = network_b.VxmDense(im_size, int_steps=10)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 vxm_model.to(device)
