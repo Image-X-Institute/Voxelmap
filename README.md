@@ -1,5 +1,5 @@
 # Voxelmap
-A deep learning framework for patient-specific 3D respiratory motion modelling and volumetric imaging
+A deep learning framework for patient-specific 3D intrafraction motion modelling and volumetric imaging
 
 The key idea behind this framework is that 2D views provide hints about 3D motion. Patient-specific geometric correspondences can be learned from pre-treatment 4D imaging data. Image registration and forward-projection can be used to generate the desired 3D deformation vector fields (DVFs) and 2D projections, which are then used to train a deep neural network. During treatment, a trained neural network can be used to provide insights regarding 3D internal patient anatomy from 2D images acquired in real-time. In particular, the predicted 3D DVF can be used to warp pre-treatment 3D images and contours to provide real-time volumetric imaging as well as the 3D positions of the target and surrounding organs-at-risk.
 
