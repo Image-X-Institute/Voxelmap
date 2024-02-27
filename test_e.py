@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 expt_file = 'train_e'
 test_file = 'data/combat/test'
 
-class validateXCATDataset(Dataset):
+class validateCOMBATDataset(Dataset):
     def __init__(self, im_dir=None, ref_dir=None, im_size=None):
         self.im_dir = im_dir
         self.ref_dir = ref_dir
@@ -196,7 +196,7 @@ class validateXCATDataset(Dataset):
 # Generate test loader
 batch_size = 1
 im_size = 128
-dataset = validateXCATDataset(im_dir=test_file, ref_dir=test_file + '/source', im_size=im_size)
+dataset = validateCOMBATDataset(im_dir=test_file, ref_dir=test_file + '/source', im_size=im_size)
 testloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 # Import network and set up cuda implementation
