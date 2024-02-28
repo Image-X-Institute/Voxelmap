@@ -9,6 +9,8 @@ This task can be approached in a variety of ways, yielding a number of different
 
 ![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
 
-Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. Example data to train and test the models can be found at https://ses.library.usyd.edu.au/handle/2123/32282. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. Example data to train and test the models can be found at https://ses.library.usyd.edu.au/handle/2123/32282. If you use this code, please cite: Nicholas Hindley et al 2023 Phys. Med. Biol. 68 14NT01. 
+
+This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
 
 The inventors have filed a PCT for this work (WO2023215936A1). This code is free to use for academic, non-commercial use. For commercial use, please contact nicholas.hindley@sydney.edu.au.
