@@ -157,20 +157,20 @@ dataset = validateXCATDataset(im_dir=test_file, ref_dir=test_file + '/source', i
 testloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 # Import network and set up cuda implementation
-vxm_model = network_a.VxmDense(im_size, int_steps=10)
+model = network_a.model(im_size, int_steps=10)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-vxm_model.to(device)
+model.to(device)
 
 # Load transformer
 transformer = spatialTransform.Network([im_size, im_size, im_size])
 transformer.to(device)
 
-print('Number of paramters: %d' % (sum(p.numel() for p in vxm_model.parameters() if p.requires_grad)))
+print('Number of paramters: %d' % (sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 # Load weights
 PATH = 'weights/' + expt_file + '.pth'
-vxm_model.load_state_dict(torch.load(PATH, map_location=device))
-vxm_model.eval()
+model.load_state_dict(torch.load(PATH, map_location=device))
+model.eval()
 
 print('Testing...')
 centroid_ptv = losses.centroid_ptv()
@@ -207,7 +207,7 @@ for i, data in enumerate(testloader, 0):
         data['target_spinalcord'].to(device), \
         data['angle'].to(device)
 
-    predict_ptv, predict_flow = vxm_model.forward(source_proj, target_proj, source_ptv)
+    predict_ptv, predict_flow = model.forward(source_proj, target_proj, source_ptv)
 
     lr, si, ap = centroid_ptv.loss(target_ptv)
 
