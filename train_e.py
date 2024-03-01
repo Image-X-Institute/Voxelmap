@@ -113,14 +113,14 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuff
 valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
 
 # set up network
-vxm_model = network_e.VxmDense(im_size, int_steps=10)
+model = network_e.VxmDense(im_size, int_steps=10)
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-vxm_model.to(device)
+model.to(device)
 
 # set loss function and optimizer
 flow_mask = losses.flow_mask()
 lr = 1e-5
-optimizer = optim.Adam(vxm_model.parameters(), lr=lr)
+optimizer = optim.Adam(model.parameters(), lr=lr)
 
 print('Training (on ' + str(device) + ')...')
 tic = time.time()
@@ -148,7 +148,7 @@ for epoch in range(1, epoch_num + 1):
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        _, predict_flow = vxm_model.forward(source_real_c, source_imag_c, source_real_s, source_imag_s, target_real_c,
+        _, predict_flow = model.forward(source_real_c, source_imag_c, source_real_s, source_imag_s, target_real_c,
                                             target_imag_c, target_real_s, target_imag_s, source_abdomen)
 
         loss = flow_mask.loss(target_flow, predict_flow, source_abdomen)
@@ -158,7 +158,7 @@ for epoch in range(1, epoch_num + 1):
 
     # test and print every epoch
     val_loss = 0.0
-    vxm_model.eval()
+    model.eval()
     with torch.no_grad():
         for j, valdata in enumerate(valloader, 0):
             source_real_c, source_imag_c, source_real_s, source_imag_s, target_real_c, target_imag_c, target_real_s, target_imag_s, source_abdomen, target_flow = \
@@ -173,7 +173,7 @@ for epoch in range(1, epoch_num + 1):
                 data['source_abdomen'].to(device), \
                 data['target_flow'].to(device)
 
-            _, predict_flow = vxm_model.forward(source_real_c, source_imag_c, source_real_s, source_imag_s,
+            _, predict_flow = model.forward(source_real_c, source_imag_c, source_real_s, source_imag_s,
                                                 target_real_c, target_imag_c, target_real_s, target_imag_s, source_abdomen)
 
             loss = flow_mask.loss(target_flow, predict_flow, source_abdomen)
@@ -192,7 +192,7 @@ for epoch in range(1, epoch_num + 1):
     # save model with lowest validation cost
     if val_loss < min_val_loss:
         PATH = 'weights/' + filename + '.pth'
-        torch.save(vxm_model.state_dict(), PATH)
+        torch.save(model.state_dict(), PATH)
         min_val_loss = val_loss
 
     # plot training
