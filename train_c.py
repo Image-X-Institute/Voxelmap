@@ -82,14 +82,14 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuff
 valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
 
 # set up network
-vxm_model = network_c.VxmDense(im_size, int_steps=10)
+model = network_c.model(im_size, int_steps=10)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-vxm_model.to(device)
+model.to(device)
 
 # set loss function and optimizer
 flow_mask = losses.flow_mask()
 lr = 1e-5
-optimizer = optim.Adam(vxm_model.parameters(), lr=lr)
+optimizer = optim.Adam(model.parameters(), lr=lr)
 
 print('Training (on ' + str(device) + ')...')
 tic = time.time()
@@ -111,7 +111,7 @@ for epoch in range(1, epoch_num + 1):
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        _, predict_flow = vxm_model.forward(target_proj, source_vol)
+        _, predict_flow = model.forward(target_proj, source_vol)
         loss = flow_mask.loss(target_flow, predict_flow, source_abdomen)
         train_loss += loss.item()
         loss.backward()
@@ -119,7 +119,7 @@ for epoch in range(1, epoch_num + 1):
 
     # test and print every epoch
     val_loss = 0.0
-    vxm_model.eval()
+    model.eval()
     with torch.no_grad():
         for j, valdata in enumerate(valloader, 0):
             source_proj, target_proj, source_vol, source_abdomen, target_flow = data['source_projections'].to(device), \
@@ -128,7 +128,7 @@ for epoch in range(1, epoch_num + 1):
                                                                                 data['source_abdomen'].to(device), \
                                                                                 data['target_flow'].to(device)
 
-            _, predict_flow = vxm_model.forward(target_proj, source_vol)
+            _, predict_flow = model.forward(target_proj, source_vol)
             loss = flow_mask.loss(target_flow, predict_flow, source_abdomen)
             val_loss += loss.item()
 
@@ -148,7 +148,7 @@ for epoch in range(1, epoch_num + 1):
             os.mkdir('weights')
 
         PATH = 'weights/' + filename + '.pth'
-        torch.save(vxm_model.state_dict(), PATH)
+        torch.save(model.state_dict(), PATH)
         min_val_loss = val_loss
 
     # plot training
