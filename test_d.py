@@ -79,22 +79,25 @@ class validateCOMBATDataset(Dataset):
         target_vol = np.load(vol_name)
 
         # Find target contours
-        vol_name = os.path.join(self.im_dir, format('Target_' + target_file[5:10] + '_mha.npy'))
+        target_num = target_file.split('_')
+        target_num = target_num[1]
+
+        vol_name = os.path.join(self.im_dir, format('Target_' + target_num + '_mha.npy'))
         target_ptv = np.load(vol_name)
 
-        vol_name = os.path.join(self.im_dir, format('Eso_' + target_file[5:10] + '_mha.npy'))
+        vol_name = os.path.join(self.im_dir, format('Eso_' + target_num + '_mha.npy'))
         target_eso = np.load(vol_name)
 
-        vol_name = os.path.join(self.im_dir, format('Sto_' + target_file[5:10] + '_mha.npy'))
+        vol_name = os.path.join(self.im_dir, format('Sto_' + target_num + '_mha.npy'))
         target_sto = np.load(vol_name)
 
-        vol_name = os.path.join(self.im_dir, format('LungL_' + target_file[5:10] + '_mha.npy'))
+        vol_name = os.path.join(self.im_dir, format('LungL_' + target_num + '_mha.npy'))
         target_lungL = np.load(vol_name)
 
-        vol_name = os.path.join(self.im_dir, format('LungR_' + target_file[5:10] + '_mha.npy'))
+        vol_name = os.path.join(self.im_dir, format('LungR_' + target_num + '_mha.npy'))
         target_lungR = np.load(vol_name)
 
-        vol_name = os.path.join(self.im_dir, format('SpCord_' + target_file[5:10] + '_mha.npy'))
+        vol_name = os.path.join(self.im_dir, format('SpCord_' + target_num + '_mha.npy'))
         target_spcord = np.load(vol_name)
 
         # Reshape data to correct format
