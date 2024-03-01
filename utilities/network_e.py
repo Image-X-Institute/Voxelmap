@@ -98,10 +98,7 @@ class net2Dto3D(nn.Module):
             x = layer(x)
         return x
 
-class VxmDense(LoadableModel):
-    """
-    Modified version of VxmDense that replaces the core unet model with a 2D to 3D reconstruction network
-    """
+class model(LoadableModel):
 
     @store_config_args
     def __init__(self,
