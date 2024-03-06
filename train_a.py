@@ -16,9 +16,11 @@ class SupervisedDataset(Dataset):
     def __init__(self, im_dir=None, im_size=None):
         self.im_dir = im_dir
         self.im_size = im_size
+        #self.proj_list = sorted([n for n in os.listdir(self.im_dir) if n.endswith('_bin.npy')])
 
     def __len__(self):
         return len([n for n in os.listdir(self.im_dir) if n.endswith('_bin.npy')])
+        # return len(self.proj_list)
 
     def __getitem__(self, idx):
         # Find target projection
