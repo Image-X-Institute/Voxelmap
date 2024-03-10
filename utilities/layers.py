@@ -1,4 +1,4 @@
-# from the voxelmorph repository
+# from the voxelmorph repository (https://github.com/voxelmorph/voxelmorph)
 import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
