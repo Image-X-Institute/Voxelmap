@@ -1,4 +1,4 @@
-# from voxelmorph repository
+# from voxelmorph repository (https://github.com/voxelmorph/voxelmorph)
 import layers
 from modelio import LoadableModel, store_config_args
 
