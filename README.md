@@ -13,4 +13,4 @@ This task can be approached in a variety of ways, yielding a number of different
 
 Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
 
-The inventors have filed a PCT for this work (WO2023215936A1). This code is free to use for academic, non-commercial use. For commercial use, please contact nicholas.hindley@sydney.edu.au.
+The inventor has filed a US patent for this work (US20250285300A1). This code is free to use for academic, non-commercial use. For commercial use, please contact nicholas.hindley@sydney.edu.au.
