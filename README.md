@@ -35,17 +35,15 @@ Each architecture has a variant with Feature-wise Linear Modulation (FiLM) that 
 ## File Structure
 
 ```
-network_variants.py      # All architecture implementations
-train_variants.py        # Training script for any variant
-validate_model.py        # Validation and visualization
-train_all_variants.sh    # Batch training script
+networks.py      # All architecture implementations
+train.py        # Training script for any variant
 ```
 
 ## Training
 
 ### Single architecture:
 ```bash
-python train_variants.py \
+python train.py \
     --architecture concatenated \
     --im_dir data/xcat/train \
     --im_size 128 \
@@ -56,7 +54,7 @@ python train_variants.py \
 
 ### With FiLM:
 ```bash
-python train_variants.py \
+python train.py \
     --architecture concatenated \
     --use_film \
     --im_dir data/xcat/train \
@@ -64,21 +62,6 @@ python train_variants.py \
     --batch_size 8 \
     --epochs 50 \
     --lr 1e-5
-```
-
-### All variants:
-```bash
-bash train_all_variants.sh --epochs 50
-```
-
-## Validation
-
-```bash
-python validate_model.py \
-    --checkpoint outputs/concatenated/weights/best_model.pth \
-    --im_dir data/xcat/train \
-    --phase 01 \
-    --slice_idx 64
 ```
 
 Generates two figures:
