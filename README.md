@@ -1,6 +1,6 @@
 # Angular encoding variants
 
-This codebase implements multiple architectural variants for 2D-to-3D deformation field prediction with optional FiLM conditioning.
+This codebase implements multiple architectural variants for Voxelmap with FiLM conditioning for angular encoding.
 
 ## Architecture Variants
 
