@@ -3,7 +3,7 @@ import os
 import argparse
 import numpy as np
 from matplotlib import pyplot as plt
-from utilities import network_variants, losses
+from utilities import networks, losses
 import torch
 from torch.utils.data import Dataset
 import torch.optim as optim
@@ -317,17 +317,17 @@ def main(args):
     
     # Initialize model
     if args.model_variant == 'single_encoder':
-        model = network_variants.SingleEncoderDualDecoder(
+        model = networks.SingleEncoderDualDecoder(
             args.im_size, int_steps=args.int_steps, num_levels=args.num_levels, 
             skip_connections=args.skip_connections
         )
     elif args.model_variant == 'dual_encoder':
-        model = network_variants.DualEncoderDualDecoder(
+        model = networks.DualEncoderDualDecoder(
             args.im_size, int_steps=args.int_steps, num_levels=args.num_levels,
             skip_connections=args.skip_connections
         )
     elif args.model_variant == 'original':
-        model = network_variants.OriginalModel(
+        model = networks.OriginalModel(
             args.im_size, int_steps=args.int_steps, num_levels=args.num_levels
         )
     else:
