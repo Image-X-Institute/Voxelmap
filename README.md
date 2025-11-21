@@ -1,22 +1,132 @@
-# Voxelmap
-A deep learning framework for patient-specific 3D intrafraction motion modelling and volumetric imaging
+# Network Architecture Variants
 
-To get you started right away, we have uploaded some example data at https://ses.library.usyd.edu.au/handle/2123/32282 and have created a Jupyter notebook (tutorial.ipynb), which guides you through the framework. If you use this code, please cite: 
+This codebase implements multiple architectural variants for 2D-to-3D deformation field prediction with optional FiLM conditioning.
 
-* ["An open-source deep learning framework for respiratory motion monitoring and volumetric imaging during radiation therapy"](https://aapm.onlinelibrary.wiley.com/doi/full/10.1002/mp.18015)
-  
-* ["A patient-specific deep learning framework for 3D motion estimation and volumetric imaging during lung cancer radiotherapy"](https://iopscience.iop.org/article/10.1088/1361-6560/ace1d0/meta)
+## Architecture Variants
 
-The key idea behind this framework is that 2D views provide hints about 3D motion. Patient-specific geometric correspondences can be learned from pre-treatment 4D imaging data. Image registration and forward-projection can be used to generate the desired 3D deformation vector fields (DVFs) and 2D projections, which are then used to train a deep neural network. During treatment, a trained neural network can be used to provide insights regarding 3D internal patient anatomy from 2D images acquired in real-time. In particular, the predicted 3D DVF can be used to warp pre-treatment 3D images and contours to provide real-time volumetric imaging as well as the 3D positions of the target and surrounding organs-at-risk.
+### 1. Concatenated (Original)
+- Concatenates source and target projections
+- Single 2D encoding path
+- Full depth encoding (original number of blocks)
 
-![Proposed clinical workflow](https://github.com/Image-X-Institute/Voxelmap/blob/main/Workflow.jpg)
+### 2. Dual Encoder
+- Separate identical encoders for source and target projections
+- Features concatenated after encoding
+- One fewer residual block than original
 
-This task can be approached in a variety of ways, yielding a number of different network architectures. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
+### 3. Separate Projection-Volume Encoder
+- Independent 2D encoder for projections
+- Independent 3D encoder for volume
+- Features combined after encoding
+- One fewer residual block than original
 
-![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
+### 4. Broadcast Encoder
+- Projects 2D features to 3D by broadcasting
+- Single 3D residual block processes projected features
+- Combined with volume in single 3D encoding path
+- One fewer residual block than original
 
-Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+### FiLM Conditioning
+Each architecture has a variant with Feature-wise Linear Modulation (FiLM) that conditions on gantry angle:
+- Requires `Angles.csv` in image directory with columns: `filename`, `angle`
+- FiLM layers inserted in each encoding block
+- Learns angle-dependent affine transformations: `γ(θ) * x + β(θ)`
 
-This implementation is subject to patent rights under US Patent Application US20250285300A1. While the code is available under Apache License 2.0, commercial applications of the method require separate licensing.
+## File Structure
 
-Contact: nicholas.hindley@sydney.edu.au
+```
+network_variants.py      # All architecture implementations
+train_variants.py        # Training script for any variant
+validate_model.py        # Validation and visualization
+train_all_variants.sh    # Batch training script
+```
+
+## Training
+
+### Single architecture:
+```bash
+python train_variants.py \
+    --architecture concatenated \
+    --im_dir data/xcat/train \
+    --im_size 128 \
+    --batch_size 8 \
+    --epochs 50 \
+    --lr 1e-5
+```
+
+### With FiLM:
+```bash
+python train_variants.py \
+    --architecture concatenated \
+    --use_film \
+    --im_dir data/xcat/train \
+    --im_size 128 \
+    --batch_size 8 \
+    --epochs 50 \
+    --lr 1e-5
+```
+
+### All variants:
+```bash
+bash train_all_variants.sh --epochs 50
+```
+
+## Validation
+
+```bash
+python validate_model.py \
+    --checkpoint outputs/concatenated/weights/best_model.pth \
+    --im_dir data/xcat/train \
+    --phase 01 \
+    --slice_idx 64
+```
+
+Generates two figures:
+1. **DVF comparison**: Target vs predicted deformation fields (X, Y, Z components + magnitude + errors)
+2. **Volume comparison**: Source, target, predicted volumes with error maps
+
+## Output Structure
+
+```
+outputs/
+├── concatenated/
+│   ├── weights/
+│   │   └── best_model.pth
+│   ├── plots/
+│   │   └── training_curve.png
+│   └── validation/
+│       ├── dvf_comparison_phase_01.png
+│       └── volume_comparison_phase_01.png
+├── concatenated_film/
+├── dual/
+├── dual_film/
+├── separate/
+├── separate_film/
+├── broadcast/
+└── broadcast_film/
+```
+
+## Data Requirements
+
+Expected files in `im_dir`:
+- `XX_YY_bin.npy`: Projections (XX=phase, YY=angle)
+- `sub_DVF_XX_mha.npy`: Target deformation fields
+- `sub_CT_XX_mha.npy`: Target volumes
+- `sub_CT_06_mha.npy`: Source volume (reference phase)
+- `sub_Abdomen_mha.npy`: Abdomen mask
+- `Angles.csv`: Gantry angles (required only for FiLM variants)
+
+## Key Parameters
+
+- `--architecture`: `concatenated`, `dual`, `separate`, `broadcast`
+- `--use_film`: Enable angle conditioning
+- `--int_steps`: Integration steps for diffeomorphic transform (default: 10)
+- `--im_size`: Input/output resolution (default: 128)
+- `--epochs`: Training epochs (default: 50)
+- `--lr`: Learning rate (default: 1e-5)
+
+## Metrics
+
+Validation reports:
+- **DVF**: MSE, MAE
+- **Volume**: MSE, MAE, PSNR
