@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from utilities import network_variants, losses
+from utilities import network, losses
 import torch
 from torch.utils.data import Dataset
 import torch.optim as optim
@@ -117,7 +117,7 @@ def train_model(args):
     valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=True)
     
     # Setup model
-    model = network_variants.Model(
+    model = network.Model(
         im_size=args.im_size,
         architecture=args.architecture,
         use_film=args.use_film,
