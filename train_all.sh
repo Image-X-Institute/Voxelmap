@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to train all network variants
-# Usage: bash train_all_variants.sh [optional arguments]
+# Usage: bash train_all.sh [optional arguments]
 
 # Default parameters (can be overridden with command line args)
 IM_DIR="data/xcat/train"
@@ -57,7 +57,7 @@ for arch in "${ARCHITECTURES[@]}"; do
     echo "========================================="
     echo "Training: $arch (without FiLM)"
     echo "========================================="
-    python train_variants.py \
+    python train.py \
         --architecture $arch \
         --im_dir $IM_DIR \
         --im_size $IM_SIZE \
@@ -70,7 +70,7 @@ for arch in "${ARCHITECTURES[@]}"; do
     echo "========================================="
     echo "Training: $arch (with FiLM)"
     echo "========================================="
-    python train_variants.py \
+    python train.py \
         --architecture $arch \
         --use_film \
         --im_dir $IM_DIR \
