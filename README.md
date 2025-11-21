@@ -1,22 +1,186 @@
-# Voxelmap
-A deep learning framework for patient-specific 3D intrafraction motion modelling and volumetric imaging
+# 2D-to-3D Motion Estimation and Image Synthesis
 
-To get you started right away, we have uploaded some example data at https://ses.library.usyd.edu.au/handle/2123/32282 and have created a Jupyter notebook (tutorial.ipynb), which guides you through the framework. If you use this code, please cite: 
+Joint motion estimation and image synthesis from 2D projections to 3D volumes using multi-resolution neural networks with sequential training.
 
-* ["An open-source deep learning framework for respiratory motion monitoring and volumetric imaging during radiation therapy"](https://aapm.onlinelibrary.wiley.com/doi/full/10.1002/mp.18015)
-  
-* ["A patient-specific deep learning framework for 3D motion estimation and volumetric imaging during lung cancer radiotherapy"](https://iopscience.iop.org/article/10.1088/1361-6560/ace1d0/meta)
+## Architecture Variants
 
-The key idea behind this framework is that 2D views provide hints about 3D motion. Patient-specific geometric correspondences can be learned from pre-treatment 4D imaging data. Image registration and forward-projection can be used to generate the desired 3D deformation vector fields (DVFs) and 2D projections, which are then used to train a deep neural network. During treatment, a trained neural network can be used to provide insights regarding 3D internal patient anatomy from 2D images acquired in real-time. In particular, the predicted 3D DVF can be used to warp pre-treatment 3D images and contours to provide real-time volumetric imaging as well as the 3D positions of the target and surrounding organs-at-risk.
+### 1. Original
+- Single encoder-decoder predicting motion fields
+- Baseline architecture for comparison
 
-![Proposed clinical workflow](https://github.com/Image-X-Institute/Voxelmap/blob/main/Workflow.jpg)
+### 2. Single Encoder, Dual Decoder
+- Shared 3D encoder for projection + source volume
+- Separate decoders for motion and image synthesis
+- Motion decoder trained first, then frozen during image training
+- Image decoder uses warped encoder features at all levels
+- Optional U-Net skip connections between encoder and image decoder
 
-This task can be approached in a variety of ways, yielding a number of different network architectures. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
+### 3. Dual Encoder, Dual Decoder
+- Independent encoders for motion and image pathways
+- Separate decoders for each task
+- Sequential training: motion network → image network
+- Image encoder features warped by motion predictions at all levels
+- Optional skip connections (concatenates motion features with warped image features for conditioning)
 
-![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
+All variants support multi-resolution processing with feature warping at each decoder level.
 
-Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+## File Structure
 
-This implementation is subject to patent rights under US Patent Application US20250285300A1. While the code is available under Apache License 2.0, commercial applications of the method require separate licensing.
+```
+utilities/networks.py    # All architecture implementations
+train.py                # Training script for any variant
+train_all.sh            # Batch training script
+```
 
-Contact: nicholas.hindley@sydney.edu.au
+## Training
+
+### Single variant:
+```bash
+python train.py \
+    --model_variant single_encoder \
+    --skip_connections False \
+    --image_loss_type l1 \
+    --motion_epochs 100 \
+    --image_epochs 100 \
+    --lr 1e-4 \
+    --im_dir /path/to/data
+```
+
+### With perceptual loss:
+```bash
+python train.py \
+    --model_variant dual_encoder \
+    --image_loss_type perceptual \
+    --motion_epochs 100 \
+    --image_epochs 100 \
+    --lr 1e-4
+```
+
+## Output Structure
+
+```
+weights/
+├── {variant}_motion.pth        # Motion pathway (stage 1)
+├── {variant}_image.pth         # Image pathway (stage 2)
+└── {variant}_final.pth         # Complete model
+
+plots/
+├── {variant}_motion.png        # Motion training curves
+└── {variant}_image.png         # Image training curves
+
+logs/
+├── original.log
+├── single_encoder_l1.log
+├── single_encoder_perceptual.log
+├── dual_encoder_l1.log
+└── dual_encoder_perceptual.log
+```
+
+## Data Requirements
+
+Expected files in `im_dir`:
+- `XX_bin.npy`: Target projections (XX=phase)
+- `DVF_XX_mha.npy`: Target deformation fields (3D, 3 channels)
+- `subCT_XX_mha.npy`: Target volumes
+- `subCT_06_mha.npy`: Source volume (reference)
+
+All data normalized to [0, 1].
+
+## Key Parameters
+
+**Model:**
+- `--model_variant`: `single_encoder`, `dual_encoder`, `original`
+- `--skip_connections`: Enable skip connections (default: False)
+- `--image_loss_type`: `l1`, `perceptual`
+
+**Training:**
+- `--motion_epochs`: Epochs for motion training (default: 100)
+- `--image_epochs`: Epochs for image training (default: 100)
+- `--lr`: Learning rate (default: 1e-4)
+- `--batch_size`: Batch size (default: 8)
+
+**Network:**
+- `--int_steps`: Flow integration steps (default: 7)
+- `--im_size`: Resolution (default: 128)
+- `--num_levels`: Multi-resolution levels (default: 4)
+
+## Training Details
+
+### Two-Stage Training
+For dual decoder variants:
+
+**Stage 1 - Motion:**
+- Train motion encoder/decoder with multi-level MSE on flow fields
+- Level weights: [0.25, 0.5, 0.75, 1.0] (coarse to fine)
+- Best model saved as `{variant}_motion.pth`
+
+**Stage 2 - Image:**
+- Freeze motion pathway
+- Train image encoder/decoder with L1 or perceptual loss
+- Features warped at each level using predicted motion
+- Best model saved as `{variant}_image.pth`
+
+Final complete model: `{variant}_final.pth`
+
+### Loss Functions
+
+**Motion Loss:** Multi-level MSE between predicted and ground truth flow
+
+**Image Loss:**
+- **L1**: Pixel-wise loss between predicted and target volumes
+- **Perceptual**: VGG16-based features from 3 orthogonal slice planes
+
+### Multi-Resolution Processing
+
+Flow predictions at 4 levels (for im_size=128):
+- Level 0: 16×16×16
+- Level 1: 32×32×32
+- Level 2: 64×64×64
+- Level 3: 128×128×128
+
+Features warped at each level before upsampling.
+
+## Model Loading
+
+```python
+from utilities import network_variants
+import torch
+
+model = network_variants.SingleEncoderDualDecoder(
+    im_size=128, int_steps=7, num_levels=4, skip_connections=False
+)
+model.load_state_dict(torch.load('weights/single_encoder_noskip_l1_final.pth'))
+model.eval()
+
+# Motion prediction
+with torch.no_grad():
+    warped_vol, flow, multi_flows = model(target_proj, source_vol, mode='motion')
+
+# Image synthesis
+with torch.no_grad():
+    synth_vol, flow, multi_flows = model(target_proj, source_vol, mode='image')
+```
+
+## Implementation Notes
+
+### Skip Connections
+- **Single Encoder**: Fuses warped encoder features with motion decoder features
+- **Dual Encoder**: Concatenates motion decoder features with warped image encoder features
+  - Semantics: motion features provide conditioning for image synthesis
+  - Recommend experimentation to validate effectiveness
+
+### Feature Warping
+- Features warped at decoder levels before upsampling
+- Maintains spatial correspondence during reconstruction
+- Applied at all resolution levels for maximum motion guidance
+
+## Installation
+
+```bash
+pip install torch torchvision numpy matplotlib
+
+# Required utilities (from your codebase):
+# - utilities.layers: VecInt, SpatialTransformer
+# - utilities.losses: MSE
+# - utilities.modelio: LoadableModel, store_config_args
+```
