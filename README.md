@@ -1,6 +1,6 @@
-# 2D-to-3D Motion Estimation and Image Synthesis
+# Joint Motion Estimation and Image Synthesis
 
-Joint motion estimation and image synthesis from 2D projections to 3D volumes using multi-resolution neural networks with sequential training.
+This codebase implements a joint motion estimation-image synthesis learning scheme for Voxelmap.
 
 ## Architecture Variants
 
