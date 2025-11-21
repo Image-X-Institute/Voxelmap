@@ -37,6 +37,7 @@ Each architecture has a variant with Feature-wise Linear Modulation (FiLM) that 
 ```
 networks.py      # All architecture implementations
 train.py        # Training script for any variant
+train_all.sh    # Shell command to train all variants
 ```
 
 ## Training
