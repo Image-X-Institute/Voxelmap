@@ -15,7 +15,7 @@ mkdir -p logs
 # Original Model (baseline)
 echo ""
 echo ">>> Training Original Model"
-python train_variants.py \
+python train.py \
     --model_variant original \
     --motion_epochs 100 \
     --lr 1e-4 \
@@ -25,7 +25,7 @@ python train_variants.py \
 # Single Encoder, Dual Decoder - No Skip - L1 Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (No Skip, L1)"
-python train_variants.py \
+python train.py \
     --model_variant single_encoder \
     --skip_connections False \
     --image_loss_type l1 \
@@ -38,7 +38,7 @@ python train_variants.py \
 # Single Encoder, Dual Decoder - No Skip - Perceptual Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (No Skip, Perceptual)"
-python train_variants.py \
+python train.py \
     --model_variant single_encoder \
     --skip_connections False \
     --image_loss_type perceptual \
@@ -51,7 +51,7 @@ python train_variants.py \
 # Single Encoder, Dual Decoder - With Skip - L1 Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (Skip, L1)"
-python train_variants.py \
+python train.py \
     --model_variant single_encoder \
     --skip_connections True \
     --image_loss_type l1 \
@@ -64,7 +64,7 @@ python train_variants.py \
 # Single Encoder, Dual Decoder - With Skip - Perceptual Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (Skip, Perceptual)"
-python train_variants.py \
+python train.py \
     --model_variant single_encoder \
     --skip_connections True \
     --image_loss_type perceptual \
@@ -77,7 +77,7 @@ python train_variants.py \
 # Dual Encoder, Dual Decoder - No Skip - L1 Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (No Skip, L1)"
-python train_variants.py \
+python train.py \
     --model_variant dual_encoder \
     --skip_connections False \
     --image_loss_type l1 \
@@ -90,7 +90,7 @@ python train_variants.py \
 # Dual Encoder, Dual Decoder - No Skip - Perceptual Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (No Skip, Perceptual)"
-python train_variants.py \
+python train.py \
     --model_variant dual_encoder \
     --skip_connections False \
     --image_loss_type perceptual \
@@ -103,7 +103,7 @@ python train_variants.py \
 # Dual Encoder, Dual Decoder - With Skip - L1 Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (Skip, L1)"
-python train_variants.py \
+python train.py \
     --model_variant dual_encoder \
     --skip_connections True \
     --image_loss_type l1 \
@@ -116,7 +116,7 @@ python train_variants.py \
 # Dual Encoder, Dual Decoder - With Skip - Perceptual Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (Skip, Perceptual)"
-python train_variants.py \
+python train.py \
     --model_variant dual_encoder \
     --skip_connections True \
     --image_loss_type perceptual \
