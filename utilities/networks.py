@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-
 from utilities import layers
 from utilities.modelio import LoadableModel, store_config_args
 
@@ -434,7 +433,7 @@ class OriginalModel(LoadableModel):
         vol_shape = [im_size, im_size, im_size]
         self.final_transformer = layers.SpatialTransformer(vol_shape)
 
-    def forward(self, target_proj, source_vol):
+    def forward(self, target_proj, source_vol, mode='motion'):
         target_feat = self.proj_embedder(target_proj)
         target_feat = target_feat.unsqueeze(2)
         depth = source_vol.shape[2]
