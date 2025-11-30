@@ -1,7 +1,5 @@
 #!/bin/bash
-
 # Train all network variants with and without skip connections
-# Each variant trains motion pathway first, then image pathway with both L1 and perceptual loss
 
 echo "=========================================="
 echo "Training All Network Variants"
@@ -15,7 +13,7 @@ mkdir -p logs
 # Original Model (baseline)
 echo ""
 echo ">>> Training Original Model"
-python train.py \
+python3 train.py \
     --model_variant original \
     --motion_epochs 100 \
     --lr 1e-4 \
@@ -25,9 +23,9 @@ python train.py \
 # Single Encoder, Dual Decoder - No Skip - L1 Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (No Skip, L1)"
-python train.py \
+python3 train.py \
     --model_variant single_encoder \
-    --skip_connections False \
+    --skip_connections false \
     --image_loss_type l1 \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -38,9 +36,9 @@ python train.py \
 # Single Encoder, Dual Decoder - No Skip - Perceptual Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (No Skip, Perceptual)"
-python train.py \
+python3 train.py \
     --model_variant single_encoder \
-    --skip_connections False \
+    --skip_connections false \
     --image_loss_type perceptual \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -51,9 +49,9 @@ python train.py \
 # Single Encoder, Dual Decoder - With Skip - L1 Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (Skip, L1)"
-python train.py \
+python3 train.py \
     --model_variant single_encoder \
-    --skip_connections True \
+    --skip_connections true \
     --image_loss_type l1 \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -64,9 +62,9 @@ python train.py \
 # Single Encoder, Dual Decoder - With Skip - Perceptual Loss
 echo ""
 echo ">>> Training Single Encoder Dual Decoder (Skip, Perceptual)"
-python train.py \
+python3 train.py \
     --model_variant single_encoder \
-    --skip_connections True \
+    --skip_connections true \
     --image_loss_type perceptual \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -77,9 +75,9 @@ python train.py \
 # Dual Encoder, Dual Decoder - No Skip - L1 Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (No Skip, L1)"
-python train.py \
+python3 train.py \
     --model_variant dual_encoder \
-    --skip_connections False \
+    --skip_connections false \
     --image_loss_type l1 \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -90,9 +88,9 @@ python train.py \
 # Dual Encoder, Dual Decoder - No Skip - Perceptual Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (No Skip, Perceptual)"
-python train.py \
+python3 train.py \
     --model_variant dual_encoder \
-    --skip_connections False \
+    --skip_connections false \
     --image_loss_type perceptual \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -103,9 +101,9 @@ python train.py \
 # Dual Encoder, Dual Decoder - With Skip - L1 Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (Skip, L1)"
-python train.py \
+python3 train.py \
     --model_variant dual_encoder \
-    --skip_connections True \
+    --skip_connections true \
     --image_loss_type l1 \
     --motion_epochs 100 \
     --image_epochs 100 \
@@ -116,9 +114,9 @@ python train.py \
 # Dual Encoder, Dual Decoder - With Skip - Perceptual Loss
 echo ""
 echo ">>> Training Dual Encoder Dual Decoder (Skip, Perceptual)"
-python train.py \
+python3 train.py \
     --model_variant dual_encoder \
-    --skip_connections True \
+    --skip_connections tru
     --image_loss_type perceptual \
     --motion_epochs 100 \
     --image_epochs 100 \
