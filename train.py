@@ -150,7 +150,7 @@ def train_motion(model, trainloader, valloader, device, num_epochs, lr, level_we
     """Train motion estimation pathway"""
     print('\n=== Training Motion Pathway ===')
     
-    flow_loss = losses.MSE()
+    MSE = torch.nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     min_val_loss = float('inf')
@@ -174,7 +174,7 @@ def train_motion(model, trainloader, valloader, device, num_epochs, lr, level_we
             for level_idx, pred_flow in enumerate(flows_at_levels):
                 scale_factor = pred_flow.shape[2] / target_flow.shape[2]
                 target_flow_downsampled = downsample_flow(target_flow, scale_factor)
-                level_loss = flow_loss.loss(target_flow_downsampled, pred_flow)
+                level_loss = MSE(target_flow_downsampled, pred_flow)
                 loss += level_weights[level_idx] * level_loss
             
             train_loss += loss.item()
@@ -195,7 +195,7 @@ def train_motion(model, trainloader, valloader, device, num_epochs, lr, level_we
                 for level_idx, pred_flow in enumerate(flows_at_levels):
                     scale_factor = pred_flow.shape[2] / target_flow.shape[2]
                     target_flow_downsampled = downsample_flow(target_flow, scale_factor)
-                    level_loss = flow_loss.loss(target_flow_downsampled, pred_flow)
+                    level_loss = MSE(target_flow_downsampled, pred_flow)
                     loss += level_weights[level_idx] * level_loss
                 
                 val_loss += loss.item()
