@@ -1,4 +1,3 @@
-# from voxelmorph repository (https://github.com/voxelmorph/voxelmorph)
 import torch
 import torch.nn as nn
 import inspect
@@ -11,31 +10,27 @@ def store_config_args(func):
     function as a dictionary in 'self.config'. This is used to assist
     model loading - see LoadableModel.
     """
-
-    attrs, varargs, varkw, defaults = inspect.getargspec(func)
-    #full_arg_spec_obj = inspect.getargspec(func)
-    #defaults = full_arg_spec_obj.defaults
-    #attrs = full_arg_spec_obj.attrs
+    # Use getfullargspec instead of deprecated getargspec
+    argspec = inspect.getfullargspec(func)
+    attrs = argspec.args
+    defaults = argspec.defaults
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         self.config = {}
-
         # first save the default values
         if defaults:
             for attr, val in zip(reversed(attrs), reversed(defaults)):
                 self.config[attr] = val
-
         # next handle positional args
         for attr, val in zip(attrs[1:], args):
             self.config[attr] = val
-
         # lastly handle keyword args
         if kwargs:
             for attr, val in kwargs.items():
                 self.config[attr] = val
-
         return func(self, *args, **kwargs)
+
     return wrapper
 
 
@@ -43,7 +38,6 @@ class LoadableModel(nn.Module):
     """
     Base class for easy pytorch model loading without having to manually
     specify the architecture configuration at load time.
-
     We can cache the arguments used to the construct the initial network, so that
     we can construct the exact same network when loading from file. The arguments
     provided to __init__ are automatically saved into the object (in self.config)
@@ -55,7 +49,8 @@ class LoadableModel(nn.Module):
     # either manually or via store_config_args
     def __init__(self, *args, **kwargs):
         if not hasattr(self, 'config'):
-            raise RuntimeError('models that inherit from LoadableModel must decorate the constructor with @store_config_args')
+            raise RuntimeError(
+                'models that inherit from LoadableModel must decorate the constructor with @store_config_args')
         super().__init__(*args, **kwargs)
 
     def save(self, path):
