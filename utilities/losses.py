@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-import pystrum.pynd.ndutils as nd
 import numpy as np
 import math
 
@@ -221,46 +220,3 @@ class dice:
         bottom = torch.clamp((y_true + y_pred).sum(dim=vol_axes), min=1e-5)
         dice = torch.mean(top / bottom)
         return dice
-
-class jacobian_determinant:
-    """
-    jacobian determinant of a displacement field.
-    """
-
-    def loss(self, disp):
-
-        # check inputs
-        volshape = disp.shape[:-1]
-        nb_dims = len(volshape)
-        assert len(volshape) in (2, 3), 'flow has to be 2D or 3D'
-
-        # compute grid
-        grid_lst = nd.volsize2ndgrid(volshape)
-        grid = np.stack(grid_lst, len(volshape))
-
-        # compute gradients
-        J = np.gradient(disp + grid)
-
-        # 3D glow
-        if nb_dims == 3:
-            dx = J[0]
-            dy = J[1]
-            dz = J[2]
-
-            # compute jacobian components
-            Jdet0 = dx[..., 0] * (dy[..., 1] * dz[..., 2] - dy[..., 2] * dz[..., 1])
-            Jdet1 = dx[..., 1] * (dy[..., 0] * dz[..., 2] - dy[..., 2] * dz[..., 0])
-            Jdet2 = dx[..., 2] * (dy[..., 0] * dz[..., 1] - dy[..., 1] * dz[..., 0])
-            Jdet = Jdet0 - Jdet1 + Jdet2
-
-            # return the proportion of element for which Jdet <= 0 #sum(i <= 0 for i in Jdet.flatten()) / Jdet.size
-            return Jdet
-
-        else:  # must be 2
-
-            dfdx = J[0]
-            dfdy = J[1]
-            Jdet = dfdx[..., 0] * dfdy[..., 1] - dfdy[..., 0] * dfdx[..., 1]
-
-            return Jdet
-
