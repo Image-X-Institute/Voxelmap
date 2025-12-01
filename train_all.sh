@@ -1,138 +1,88 @@
 #!/bin/bash
-# Train all network variants with and without skip connections
 
-echo "=========================================="
-echo "Training All Network Variants"
-echo "=========================================="
+# Script to train all network variants
+# Usage: bash train_all.sh [optional arguments]
 
-# Create output directories
-mkdir -p weights
-mkdir -p plots
-mkdir -p logs
+# Default parameters (can be overridden with command line args)
+IM_DIR="/srv/shared/SPARE/MC_V_P1_NS_01"
+IM_SIZE=128
+BATCH_SIZE=8
+EPOCHS=50
+LR=1e-5
+INT_STEPS=10
 
-# Original Model (baseline)
+# Parse optional arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --im_dir)
+            IM_DIR="$2"
+            shift 2
+            ;;
+        --im_size)
+            IM_SIZE="$2"
+            shift 2
+            ;;
+        --batch_size)
+            BATCH_SIZE="$2"
+            shift 2
+            ;;
+        --epochs)
+            EPOCHS="$2"
+            shift 2
+            ;;
+        --lr)
+            LR="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+echo "Training all network variants with:"
+echo "  Image directory: $IM_DIR"
+echo "  Image size: $IM_SIZE"
+echo "  Batch size: $BATCH_SIZE"
+echo "  Epochs: $EPOCHS"
+echo "  Learning rate: $LR"
 echo ""
-echo ">>> Training Original Model"
-python3 train.py \
-    --model_variant original \
-    --motion_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/original.log
 
-# Single Encoder, Dual Decoder - No Skip - L1 Loss
-echo ""
-echo ">>> Training Single Encoder Dual Decoder (No Skip, L1)"
-python3 train.py \
-    --model_variant single_encoder \
-    --skip_connections false \
-    --image_loss_type l1 \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/single_encoder_noskip_l1.log
+# Array of architectures
+ARCHITECTURES=("concatenated" "dual" "separate" "broadcast")
 
-# Single Encoder, Dual Decoder - No Skip - Perceptual Loss
-echo ""
-echo ">>> Training Single Encoder Dual Decoder (No Skip, Perceptual)"
-python3 train.py \
-    --model_variant single_encoder \
-    --skip_connections false \
-    --image_loss_type perceptual \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/single_encoder_noskip_perceptual.log
+# Train each architecture with and without FiLM
+for arch in "${ARCHITECTURES[@]}"; do
+    echo "========================================="
+    echo "Training: $arch (without FiLM)"
+    echo "========================================="
+    python train.py \
+        --architecture $arch \
+        --im_dir $IM_DIR \
+        --im_size $IM_SIZE \
+        --batch_size $BATCH_SIZE \
+        --epochs $EPOCHS \
+        --lr $LR \
+        --int_steps $INT_STEPS
+    
+    echo ""
+    echo "========================================="
+    echo "Training: $arch (with FiLM)"
+    echo "========================================="
+    python train.py \
+        --architecture $arch \
+        --use_film \
+        --im_dir $IM_DIR \
+        --im_size $IM_SIZE \
+        --batch_size $BATCH_SIZE \
+        --epochs $EPOCHS \
+        --lr $LR \
+        --int_steps $INT_STEPS
+    
+    echo ""
+done
 
-# Single Encoder, Dual Decoder - With Skip - L1 Loss
-echo ""
-echo ">>> Training Single Encoder Dual Decoder (Skip, L1)"
-python3 train.py \
-    --model_variant single_encoder \
-    --skip_connections true \
-    --image_loss_type l1 \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/single_encoder_skip_l1.log
-
-# Single Encoder, Dual Decoder - With Skip - Perceptual Loss
-echo ""
-echo ">>> Training Single Encoder Dual Decoder (Skip, Perceptual)"
-python3 train.py \
-    --model_variant single_encoder \
-    --skip_connections true \
-    --image_loss_type perceptual \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/single_encoder_skip_perceptual.log
-
-# Dual Encoder, Dual Decoder - No Skip - L1 Loss
-echo ""
-echo ">>> Training Dual Encoder Dual Decoder (No Skip, L1)"
-python3 train.py \
-    --model_variant dual_encoder \
-    --skip_connections false \
-    --image_loss_type l1 \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/dual_encoder_noskip_l1.log
-
-# Dual Encoder, Dual Decoder - No Skip - Perceptual Loss
-echo ""
-echo ">>> Training Dual Encoder Dual Decoder (No Skip, Perceptual)"
-python3 train.py \
-    --model_variant dual_encoder \
-    --skip_connections false \
-    --image_loss_type perceptual \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/dual_encoder_noskip_perceptual.log
-
-# Dual Encoder, Dual Decoder - With Skip - L1 Loss
-echo ""
-echo ">>> Training Dual Encoder Dual Decoder (Skip, L1)"
-python3 train.py \
-    --model_variant dual_encoder \
-    --skip_connections true \
-    --image_loss_type l1 \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/dual_encoder_skip_l1.log
-
-# Dual Encoder, Dual Decoder - With Skip - Perceptual Loss
-echo ""
-echo ">>> Training Dual Encoder Dual Decoder (Skip, Perceptual)"
-python3 train.py \
-    --model_variant dual_encoder \
-    --skip_connections tru
-    --image_loss_type perceptual \
-    --motion_epochs 100 \
-    --image_epochs 100 \
-    --lr 1e-4 \
-    --int_steps 7 \
-    2>&1 | tee logs/dual_encoder_skip_perceptual.log
-
-echo ""
-echo "=========================================="
-echo "All Training Complete!"
-echo "=========================================="
-echo "Models saved in: weights/"
-echo "Plots saved in: plots/"
-echo "Logs saved in: logs/"
-echo ""
-echo "Total variants trained: 9"
-echo "  - 1 Original baseline"
-echo "  - 4 Single Encoder (skip/noskip × L1/perceptual)"
-echo "  - 4 Dual Encoder (skip/noskip × L1/perceptual)"
+echo "========================================="
+echo "All training complete!"
+echo "========================================="
