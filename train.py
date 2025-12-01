@@ -1,55 +1,78 @@
 import time
 import os
-import argparse
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
-from utilities import networks, losses
+from utilities import networks
 import torch
 from torch.utils.data import Dataset
 import torch.optim as optim
-import torch.nn.functional as F
-import torchvision.models as models
+import argparse
 
-
-# ============================================================================
-# Dataset
-# ============================================================================
 
 class SupervisedDataset(Dataset):
-    def __init__(self, im_dir=None, im_size=None):
+    def __init__(self, im_dir=None, im_size=None, use_angles=False):
         self.im_dir = im_dir
         self.im_size = im_size
+        self.use_angles = use_angles
+        
+        # Load angles if needed
+        if use_angles:
+            angles_path = os.path.join(im_dir, 'Angles.csv')
+            self.angles_df = pd.read_csv(angles_path)
 
     def __len__(self):
         return len([n for n in os.listdir(self.im_dir) if n.endswith('_bin.npy')])
 
     def __getitem__(self, idx):
+        # Find target projection
         proj_list = sorted([n for n in os.listdir(self.im_dir) if n.endswith('_bin.npy')])
         target_file = proj_list[idx]
-        proj_name = os.path.join(self.im_dir, target_file)
+        proj_name = os.path.join(self.im_dir, format(target_file))
         target_proj = np.load(proj_name)
         target_proj = (target_proj - np.min(target_proj)) / (np.max(target_proj) - np.min(target_proj))
 
+        # Find target DVF
         vol_num = target_file[:2]
-        dvf_name = os.path.join(self.im_dir, f'DVF_{vol_num}_mha.npy')
+        dvf_name = os.path.join(self.im_dir, format('DVF_' + vol_num + '_mha.npy'))
         target_dvf = np.load(dvf_name)
 
-        vol_name = os.path.join(self.im_dir, 'subCT_06_mha.npy')
+        # Find source projection
+        source_file = '06_' + target_file[3:]
+        proj_name = os.path.join(self.im_dir, format(source_file))
+        source_proj = np.load(proj_name)
+        source_proj = (source_proj - np.min(source_proj)) / (np.max(source_proj) - np.min(source_proj))
+
+        # Find source volume
+        vol_name = os.path.join(self.im_dir, format('subCT_06_mha.npy'))
         source_vol = np.load(vol_name)
         source_vol = (source_vol - np.min(source_vol)) / (np.max(source_vol) - np.min(source_vol))
 
-        target_vol_name = os.path.join(self.im_dir, f'subCT_{vol_num}_mha.npy')
-        target_vol = np.load(target_vol_name)
-        target_vol = (target_vol - np.min(target_vol)) / (np.max(target_vol) - np.min(target_vol))
+        # Find source abdomen
+        vol_name = os.path.join(self.im_dir, format('sub_Abdomen_mha.npy'))
+        source_hull = np.load(vol_name)
 
+        # Get angle if needed
+        angle = None
+        if self.use_angles:
+            # Extract phase and projection number from filename
+            # Assuming format: XX_YY_bin.npy where XX is phase
+            angle_row = self.angles_df[self.angles_df['filename'] == target_file]
+            if not angle_row.empty:
+                angle = angle_row['angle'].values[0]
+            else:
+                angle = 0.0  # Default angle
+
+        # Reshape data
+        source_projections = np.zeros((1, self.im_size, self.im_size), dtype=np.float32)
+        source_projections[0, :, :] = np.asarray(source_proj)
         target_projections = np.zeros((1, self.im_size, self.im_size), dtype=np.float32)
         target_projections[0, :, :] = np.asarray(target_proj)
 
         source_volumes = np.zeros((1, self.im_size, self.im_size, self.im_size), dtype=np.float32)
         source_volumes[0, :, :, :] = np.asarray(source_vol)
-
-        target_volumes = np.zeros((1, self.im_size, self.im_size, self.im_size), dtype=np.float32)
-        target_volumes[0, :, :, :] = np.asarray(target_vol)
+        source_abdomen = np.zeros((1, self.im_size, self.im_size, self.im_size), dtype=np.float32)
+        source_abdomen[0, :, :, :] = np.asarray(source_hull)
 
         target_flow = np.zeros((3, self.im_size, self.im_size, self.im_size), dtype=np.float32)
         target_flow[0, :, :, :] = target_dvf[:, :, :, 0]
@@ -57,353 +80,179 @@ class SupervisedDataset(Dataset):
         target_flow[2, :, :, :] = target_dvf[:, :, :, 2]
 
         data = {
+            'source_projections': torch.from_numpy(source_projections),
             'target_projections': torch.from_numpy(target_projections),
             'source_volumes': torch.from_numpy(source_volumes),
-            'target_volumes': torch.from_numpy(target_volumes),
+            'source_abdomen': torch.from_numpy(source_abdomen),
             'target_flow': torch.from_numpy(target_flow)
         }
-
+        
+        if self.use_angles:
+            data['angle'] = torch.tensor([angle], dtype=torch.float32)
+        
         return data
 
 
-# ============================================================================
-# Perceptual Loss
-# ============================================================================
-
-class PerceptualLoss(torch.nn.Module):
-    """VGG-based perceptual loss for 3D volumes using 2D slices"""
+def train_model(args):
+    """Train a specific network variant"""
     
-    def __init__(self, device):
-        super().__init__()
-        vgg = models.vgg16(pretrained=True).features[:16].to(device).eval()
-        for param in vgg.parameters():
-            param.requires_grad = False
-        self.vgg = vgg
-        self.device = device
+    # Create output directory
+    output_dir = f'outputs/{args.architecture}'
+    if args.use_film:
+        output_dir += '_film'
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(f'{output_dir}/weights', exist_ok=True)
+    os.makedirs(f'{output_dir}/plots', exist_ok=True)
     
-    def extract_features(self, x):
-        """Extract features from central slices in all three dimensions"""
-        B, C, D, H, W = x.shape
-        
-        slice_z = x[:, :, D//2, :, :]
-        slice_y = x[:, :, :, H//2, :]
-        slice_x = x[:, :, :, :, W//2]
-        
-        slice_z = slice_z.repeat(1, 3, 1, 1)
-        slice_y = slice_y.repeat(1, 3, 1, 1)
-        slice_x = slice_x.repeat(1, 3, 1, 1)
-        
-        feat_z = self.vgg(slice_z)
-        feat_y = self.vgg(slice_y)
-        feat_x = self.vgg(slice_x)
-        
-        return feat_z, feat_y, feat_x
+    # Setup dataset
+    dataset = SupervisedDataset(
+        im_dir=args.im_dir,
+        im_size=args.im_size,
+        use_angles=args.use_film
+    )
     
-    def forward(self, pred, target):
-        pred_feats = self.extract_features(pred)
-        target_feats = self.extract_features(target)
-        
-        loss = 0
-        for pf, tf in zip(pred_feats, target_feats):
-            loss += F.mse_loss(pf, tf)
-        
-        return loss / 3
-
-
-# ============================================================================
-# Utility Functions
-# ============================================================================
-
-def downsample_flow(flow, scale_factor):
-    """Downsample flow field and scale values accordingly"""
-    downsampled = F.interpolate(flow, scale_factor=scale_factor, mode='trilinear', align_corners=True)
-    downsampled = downsampled * scale_factor
-    return downsampled
-
-
-def save_model(model, path):
-    """Save model state dict"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(model.state_dict(), path)
-
-
-def plot_losses(train_losses, val_losses, epoch, hours, filename, title):
-    """Plot and save training curves"""
-    os.makedirs('plots', exist_ok=True)
-    plt.figure()
-    plt.title(title)
-    plt.plot(np.array(range(1, epoch + 1)), np.array(train_losses), 'b')
-    plt.plot(np.array(range(1, epoch + 1)), np.array(val_losses), 'r')
-    plt.legend(['Train', 'Validation'])
-    plt.ylabel('Loss')
-    plt.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-    plt.xlabel(f'Epochs ({int(hours)} hours)')
-    plt.savefig(f'plots/{filename}.png')
-    plt.close()
-
-
-# ============================================================================
-# Training Functions
-# ============================================================================
-
-def train_motion(model, trainloader, valloader, device, num_epochs, lr, level_weights, args):
-    """Train motion estimation pathway"""
-    print('\n=== Training Motion Pathway ===')
-    
-    MSE = torch.nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    
-    min_val_loss = float('inf')
-    train_losses, val_losses = [], []
-    tic = time.time()
-    
-    for epoch in range(1, num_epochs + 1):
-        train_loss = 0.0
-        model.train()
-        
-        for data in trainloader:
-            target_proj = data['target_projections'].to(device)
-            source_vol = data['source_volumes'].to(device)
-            target_flow = data['target_flow'].to(device)
-            
-            optimizer.zero_grad()
-            
-            _, _, flows_at_levels = model(target_proj, source_vol, mode='motion')
-            
-            loss = 0.0
-            for level_idx, pred_flow in enumerate(flows_at_levels):
-                scale_factor = pred_flow.shape[2] / target_flow.shape[2]
-                target_flow_downsampled = downsample_flow(target_flow, scale_factor)
-                level_loss = MSE(target_flow_downsampled, pred_flow)
-                loss += level_weights[level_idx] * level_loss
-            
-            train_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-        
-        val_loss = 0.0
-        model.eval()
-        with torch.no_grad():
-            for valdata in valloader:
-                target_proj = valdata['target_projections'].to(device)
-                source_vol = valdata['source_volumes'].to(device)
-                target_flow = valdata['target_flow'].to(device)
-                
-                _, _, flows_at_levels = model(target_proj, source_vol, mode='motion')
-                
-                loss = 0.0
-                for level_idx, pred_flow in enumerate(flows_at_levels):
-                    scale_factor = pred_flow.shape[2] / target_flow.shape[2]
-                    target_flow_downsampled = downsample_flow(target_flow, scale_factor)
-                    level_loss = MSE(target_flow_downsampled, pred_flow)
-                    loss += level_weights[level_idx] * level_loss
-                
-                val_loss += loss.item()
-        
-        time_elapsed = (time.time() - tic) / 3600
-        hours = int(np.ceil(time_elapsed))
-        
-        print(f'Epoch: {epoch} | train: {train_loss/len(trainloader.dataset):.4f} | '
-              f'val: {val_loss/len(valloader.dataset):.4f} | time: {hours}h')
-        
-        train_losses.append(train_loss / len(trainloader.dataset))
-        val_losses.append(val_loss / len(valloader.dataset))
-        
-        if val_loss < min_val_loss:
-            save_model(model, f'weights/{args.exp_name}_motion.pth')
-            min_val_loss = val_loss
-        
-        if epoch % 10 == 0:
-            plot_losses(train_losses, val_losses, epoch, time_elapsed, 
-                       f'{args.exp_name}_motion', f'{args.exp_name} - Motion')
-    
-    return model, train_losses, val_losses
-
-
-def train_image(model, trainloader, valloader, device, loss_type, num_epochs, lr, args):
-    """Train image synthesis pathway"""
-    print(f'\n=== Training Image Pathway ({loss_type} loss) ===')
-    
-    # Freeze motion pathway
-    if hasattr(model, 'motion_encoder'):
-        for param in model.motion_encoder.parameters():
-            param.requires_grad = False
-        for param in model.motion_decoder.parameters():
-            param.requires_grad = False
-    else:
-        for param in model.motion_decoder.parameters():
-            param.requires_grad = False
-    
-    if loss_type == 'l1':
-        image_loss_fn = torch.nn.L1Loss()
-    elif loss_type == 'perceptual':
-        image_loss_fn = PerceptualLoss(device)
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
-    
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
-    
-    min_val_loss = float('inf')
-    train_losses, val_losses = [], []
-    tic = time.time()
-    
-    for epoch in range(1, num_epochs + 1):
-        train_loss = 0.0
-        model.train()
-        
-        for data in trainloader:
-            target_proj = data['target_projections'].to(device)
-            source_vol = data['source_volumes'].to(device)
-            target_vol = data['target_volumes'].to(device)
-            
-            optimizer.zero_grad()
-            
-            pred_vol, _, _ = model(target_proj, source_vol, mode='image')
-            loss = image_loss_fn(pred_vol, target_vol)
-            
-            train_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-        
-        val_loss = 0.0
-        model.eval()
-        with torch.no_grad():
-            for valdata in valloader:
-                target_proj = valdata['target_projections'].to(device)
-                source_vol = valdata['source_volumes'].to(device)
-                target_vol = valdata['target_volumes'].to(device)
-                
-                pred_vol, _, _ = model(target_proj, source_vol, mode='image')
-                loss = image_loss_fn(pred_vol, target_vol)
-                val_loss += loss.item()
-        
-        time_elapsed = (time.time() - tic) / 3600
-        hours = int(np.ceil(time_elapsed))
-        
-        print(f'Epoch: {epoch} | train: {train_loss/len(trainloader.dataset):.4f} | '
-              f'val: {val_loss/len(valloader.dataset):.4f} | time: {hours}h')
-        
-        train_losses.append(train_loss / len(trainloader.dataset))
-        val_losses.append(val_loss / len(valloader.dataset))
-        
-        if val_loss < min_val_loss:
-            save_model(model, f'weights/{args.exp_name}_image.pth')
-            min_val_loss = val_loss
-        
-        if epoch % 10 == 0:
-            plot_losses(train_losses, val_losses, epoch, time_elapsed,
-                       f'{args.exp_name}_image', f'{args.exp_name} - Image ({loss_type})')
-    
-    return model, train_losses, val_losses
-
-
-# ============================================================================
-# Main Training Pipeline
-# ============================================================================
-
-def main(args):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f'Device: {device}')
-    print(f'Configuration: {args.exp_name}')
-    
-    # Load dataset
-    dataset = SupervisedDataset(im_dir=args.im_dir, im_size=args.im_size)
     split = [int(len(dataset) * 0.9), int(len(dataset) * 0.1)]
     trainset, valset = torch.utils.data.dataset.random_split(dataset, split)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
-    valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False)
+    valloader = torch.utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=True)
     
-    print(f'Train samples: {len(trainset)}, Val samples: {len(valset)}')
+    # Setup model
+    model = networks.Model(
+        im_size=args.im_size,
+        architecture=args.architecture,
+        use_film=args.use_film,
+        int_steps=args.int_steps
+    )
     
-    # Initialize model
-    if args.model_variant == 'single_encoder':
-        model = networks.SingleEncoderDualDecoder(
-            args.im_size, int_steps=args.int_steps, num_levels=args.num_levels, 
-            skip_connections=args.skip_connections
-        )
-    elif args.model_variant == 'dual_encoder':
-        model = networks.DualEncoderDualDecoder(
-            args.im_size, int_steps=args.int_steps, num_levels=args.num_levels,
-            skip_connections=args.skip_connections
-        )
-    elif args.model_variant == 'original':
-        model = networks.OriginalModel(
-            args.im_size, int_steps=args.int_steps, num_levels=args.num_levels
-        )
-    else:
-        raise ValueError(f"Unknown model variant: {args.model_variant}")
-    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
-    level_weights = [0.25, 0.5, 0.75, 1.0]
+    # Setup loss and optimizer
+    MSE = torch.nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
-    # Training pipeline
-    if args.model_variant == 'original':
-        print('Training original model with flow supervision...')
-        model, _, _ = train_motion(model, trainloader, valloader, device, 
-                                   args.motion_epochs, args.lr, level_weights, args)
-    else:
-        print('Stage 1: Training motion pathway')
-        model, _, _ = train_motion(model, trainloader, valloader, device,
-                                   args.motion_epochs, args.lr, level_weights, args)
-        
-        print('Stage 2: Training image pathway')
-        model, _, _ = train_image(model, trainloader, valloader, device,
-                                  args.image_loss_type, args.image_epochs, args.lr, args)
-        
-        save_model(model, f'weights/{args.exp_name}_final.pth')
-        print(f'\nFinal model saved to weights/{args.exp_name}_final.pth')
+    # Check if architecture needs source_proj
+    needs_source_proj = args.architecture in ['concatenated', 'dual']
     
-    print('\nTraining complete!')
+    print(f'Training {args.architecture} (FiLM: {args.use_film}) on {device}...')
+    tic = time.time()
+    min_val_loss = float('inf')
+    train_losses, val_losses = [], []
+    
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        train_loss = 0.0
+        
+        for i, data in enumerate(trainloader, 0):
+            target_proj = data['target_projections'].to(device)
+            source_vol = data['source_volumes'].to(device)
+            source_abdomen = data['source_abdomen'].to(device)
+            target_flow = data['target_flow'].to(device)
+            
+            angle = data['angle'].to(device) if args.use_film else None
+            
+            optimizer.zero_grad()
+            
+            if needs_source_proj:
+                source_proj = data['source_projections'].to(device)
+                _, predict_flow = model.forward(source_proj, target_proj, source_vol, angle)
+            else:
+                _, predict_flow = model.forward(None, target_proj, source_vol, angle)
+            
+            loss = MSE(target_flow, predict_flow)
+            train_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+        
+        # Validation
+        val_loss = 0.0
+        model.eval()
+        with torch.no_grad():
+            for j, valdata in enumerate(valloader, 0):
+                target_proj = valdata['target_projections'].to(device)
+                source_vol = valdata['source_volumes'].to(device)
+                source_abdomen = valdata['source_abdomen'].to(device)
+                target_flow = valdata['target_flow'].to(device)
+                
+                angle = valdata['angle'].to(device) if args.use_film else None
+                
+                if needs_source_proj:
+                    source_proj = valdata['source_projections'].to(device)
+                    _, predict_flow = model.forward(source_proj, target_proj, source_vol, angle)
+                else:
+                    _, predict_flow = model.forward(None, target_proj, source_vol, angle)
+                
+                loss = MSE(target_flow, predict_flow)
+                val_loss += loss.item()
+        
+        # Compute time
+        toc = time.time()
+        time_elapsed = (toc - tic) / 3600
+        hours = np.floor(time_elapsed)
+        minutes = (time_elapsed - hours) * 60
+        
+        print('Epoch: %d | train loss: %.4f | val loss: %.4f | time: %dh %dm' %
+              (epoch, train_loss / len(trainset), val_loss / len(valset), hours, minutes))
+        
+        train_losses.append(train_loss / len(trainset))
+        val_losses.append(val_loss / len(valset))
+        
+        # Save best model
+        if val_loss < min_val_loss:
+            save_path = f'{output_dir}/weights/best_model.pth'
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss / len(trainset),
+                'val_loss': val_loss / len(valset),
+                'args': vars(args)
+            }, save_path)
+            min_val_loss = val_loss
+            print(f'  Saved best model (val_loss: {val_loss / len(valset):.4f})')
+        
+        # Plot training curve
+        plt.figure(figsize=(10, 6))
+        plt.title(f'{args.architecture.capitalize()} {"+ FiLM" if args.use_film else ""}')
+        plt.plot(np.array(range(1, epoch + 1)), np.array(train_losses), 'b', label='Train')
+        plt.plot(np.array(range(1, epoch + 1)), np.array(val_losses), 'r', label='Validation')
+        plt.legend()
+        plt.ylabel('Loss')
+        plt.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        if minutes > 30:
+            hours += 1
+        plt.xlabel('Epochs' + ' (' + str(int(hours)) + ' hours)')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(f'{output_dir}/plots/training_curve.png', dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    print('Finished training')
     torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train 2D-to-3D network variants')
+    parser = argparse.ArgumentParser(description='Train network variants')
     
-    # Model configuration
-    parser.add_argument('--model_variant', type=str, default='single_encoder',
-                       choices=['single_encoder', 'dual_encoder', 'original'],
-                       help='Model architecture variant')
-    parser.add_argument('--skip_connections', type=lambda x: x.lower() == 'true', default=False,
-                       help='Use skip connections from motion to image decoder')
-    parser.add_argument('--image_loss_type', type=str, default='l1',
-                       choices=['l1', 'perceptual'],
-                       help='Loss function for image synthesis training')
+    # Architecture selection
+    parser.add_argument('--architecture', type=str, default='concatenated',
+                        choices=['concatenated', 'dual', 'separate', 'broadcast'],
+                        help='Network architecture variant')
+    parser.add_argument('--use_film', action='store_true',
+                        help='Use FiLM conditioning on gantry angle')
     
     # Training parameters
-    parser.add_argument('--motion_epochs', type=int, default=100,
-                       help='Number of epochs for motion training')
-    parser.add_argument('--image_epochs', type=int, default=100,
-                       help='Number of epochs for image training')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                       help='Learning rate')
-    parser.add_argument('--batch_size', type=int, default=8,
-                       help='Batch size')
-    
-    # Network parameters
-    parser.add_argument('--im_size', type=int, default=128,
-                       help='Image/volume size')
-    parser.add_argument('--int_steps', type=int, default=7,
-                       help='Number of flow integration steps')
-    parser.add_argument('--num_levels', type=int, default=4,
-                       help='Number of resolution levels')
-    
-    # Data
     parser.add_argument('--im_dir', type=str, default='/srv/shared/SPARE/MC_V_P1_NS_01',
-                       help='Directory containing training data')
+                        help='Image directory')
+    parser.add_argument('--im_size', type=int, default=128,
+                        help='Image size')
+    parser.add_argument('--batch_size', type=int, default=8,
+                        help='Batch size')
+    parser.add_argument('--epochs', type=int, default=50,
+                        help='Number of epochs')
+    parser.add_argument('--lr', type=float, default=1e-5,
+                        help='Learning rate')
+    parser.add_argument('--int_steps', type=int, default=10,
+                        help='Integration steps for diffeomorphic warp')
     
     args = parser.parse_args()
-    
-    # Generate experiment name
-    skip_str = 'skip' if args.skip_connections else 'noskip'
-    if args.model_variant == 'original':
-        args.exp_name = 'original'
-    else:
-        args.exp_name = f'{args.model_variant}_{skip_str}_{args.image_loss_type}'
-    
-    # Create output directories
-    os.makedirs('weights', exist_ok=True)
-    os.makedirs('plots', exist_ok=True)
-    
-    main(args)
+    train_model(args)
