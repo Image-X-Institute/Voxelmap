@@ -90,6 +90,8 @@ def train_model(args):
     output_dir = f'outputs/{args.architecture}'
     if args.skip_connections:
         output_dir += '_skip'
+    if args.supervised:
+        output_dir += '_supervised'
     output_dir += f'_lambda{args.image_loss_weight}'
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(f'{output_dir}/weights', exist_ok=True)
@@ -134,8 +136,8 @@ def train_model(args):
     model.to(device)
     
     # Setup losses
-    L2_loss = torch.nn.MSELoss()  # For motion (flow)
-    L1_loss = torch.nn.L1Loss()   # For image (volume)
+    L2_loss = torch.nn.MSELoss()  # For supervised motion (flow)
+    L1_loss = torch.nn.L1Loss()   # For unsupervised motion (volume) and image (volume)
     
     # Setup optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -145,9 +147,15 @@ def train_model(args):
     
     print(f'\n{"="*60}')
     if is_dual_decoder:
-        print(f'Joint Training: Motion (L2) + Image (L1, λ={args.image_loss_weight})')
+        if args.supervised:
+            print(f'Joint Training (Supervised): Motion (L2 on flow) + Image (L1, λ={args.image_loss_weight})')
+        else:
+            print(f'Joint Training (Unsupervised): Motion (L1 on volume) + Image (L1, λ={args.image_loss_weight})')
     else:
-        print(f'Training: Motion only (L2)')
+        if args.supervised:
+            print(f'Training: Motion only (L2 on flow - supervised)')
+        else:
+            print(f'Training: Motion only (L1 on volume - unsupervised)')
     print(f'Architecture: {args.architecture}')
     print(f'Skip connections: {args.skip_connections}')
     print(f'{"="*60}\n')
@@ -178,9 +186,16 @@ def train_model(args):
             # Compute losses for both motion and image decoders
             total_loss = 0.0
             
-            # Motion decoder loss (L2)
+            # Motion decoder loss
             y_source_motion, predict_flow_motion = model.forward(target_proj, source_vol, mode='motion')
-            motion_loss = L2_loss(target_flow, predict_flow_motion)
+            
+            if args.supervised:
+                # Supervised: L2 loss on flow field
+                motion_loss = L2_loss(target_flow, predict_flow_motion)
+            else:
+                # Unsupervised: L1 loss on warped volume vs target volume
+                motion_loss = L1_loss(y_source_motion, target_vol)
+            
             total_loss += motion_loss
             train_motion_loss += motion_loss.item()
             
@@ -211,7 +226,14 @@ def train_model(args):
                 
                 # Motion decoder validation
                 y_source_motion, predict_flow_motion = model.forward(target_proj, source_vol, mode='motion')
-                motion_loss = L2_loss(target_flow, predict_flow_motion)
+                
+                if args.supervised:
+                    # Supervised: L2 loss on flow field
+                    motion_loss = L2_loss(target_flow, predict_flow_motion)
+                else:
+                    # Unsupervised: L1 loss on warped volume
+                    motion_loss = L1_loss(y_source_motion, target_vol)
+                
                 total_loss += motion_loss
                 val_motion_loss += motion_loss.item()
                 
@@ -313,6 +335,8 @@ if __name__ == '__main__':
                         help='Network architecture variant')
     parser.add_argument('--skip_connections', action='store_true',
                         help='Use skip connections in dual decoder architectures')
+    parser.add_argument('--supervised', action='store_true',
+                        help='Use supervised learning (L2 on flow). Default is unsupervised (L1 on volume)')
     
     # Loss parameters
     parser.add_argument('--image_loss_weight', type=float, default=10.0,
@@ -329,7 +353,7 @@ if __name__ == '__main__':
                         help='Number of epochs')
     parser.add_argument('--lr', type=float, default=1e-5,
                         help='Learning rate')
-    parser.add_argument('--int_steps', type=int, default=10,
+    parser.add_argument('--int_steps', type=int, default=7,
                         help='Integration steps for diffeomorphic warp')
     
     args = parser.parse_args()
