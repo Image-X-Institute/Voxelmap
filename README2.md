@@ -1,6 +1,19 @@
 # Joint Motion Estimation and Image Synthesis
 
-This codebase implements joint training of motion estimation and image synthesis networks Volxelmap.
+This codebase implements joint training of motion estimation and image synthesis networks for Voxelmap.
+
+## Learning Modes
+
+### Supervised Learning
+- Motion module trained with **L2 loss on flow fields** (requires ground truth DVFs)
+- Direct supervision on deformation field accuracy
+
+### Unsupervised Learning (Default)
+- Motion module trained with **L1 loss on warped volumes** (no DVF required)
+- Learns motion by warping source volume to match target volume
+- More practical for real clinical scenarios without ground truth motion
+
+Both modes use **L1 loss** for image synthesis module.
 
 ## Architecture Variants
 
@@ -22,7 +35,7 @@ This codebase implements joint training of motion estimation and image synthesis
 - Optional skip connections for additional feature fusion
 
 All dual decoder variants use **joint training** with:
-- **Motion loss**: L2 (MSE) on predicted flow fields
+- **Motion loss**: L2 (supervised) or L1 (unsupervised) 
 - **Image loss**: L1 on reconstructed volumes, weighted by λ (default: 10.0)
 
 ## File Structure
@@ -35,7 +48,7 @@ train_all.sh            # Batch training for all variants
 
 ## Quick Start
 
-### Train single variant:
+### Train single variant (unsupervised):
 ```bash
 python train.py \
     --architecture single_encoder \
@@ -46,38 +59,44 @@ python train.py \
     --im_dir /path/to/data
 ```
 
+### Train with supervised learning:
+```bash
+python train.py \
+    --architecture single_encoder \
+    --supervised \
+    --epochs 100 \
+    --lr 1e-5 \
+    --im_dir /path/to/data
+```
+
 ### Train all variants:
 ```bash
 bash train_all.sh
 ```
 
-This trains:
-- `original` (baseline)
-- `single_encoder` (without skip connections)
-- `single_encoder --skip_connections`
-- `dual_encoder` (without skip connections)
-- `dual_encoder --skip_connections`
+This trains 10 total variants:
+- `original` (unsupervised + supervised)
+- `single_encoder` × 2 skip settings × 2 learning modes = 4 variants
+- `dual_encoder` × 2 skip settings × 2 learning modes = 4 variants
 
 ## Output Structure
 
 ```
 outputs/
 ├── original_lambda10.0/
-│   ├── weights/
-│   │   └── best_model.pth
-│   └── plots/
-│       └── training_curve.png
+│   ├── weights/best_model.pth
+│   └── plots/training_curve.png
+├── original_supervised_lambda10.0/
+│   └── ...
 ├── single_encoder_lambda10.0/
-│   ├── weights/
-│   │   └── best_model.pth
-│   └── plots/
-│       └── training_curve.png
+│   └── ...
+├── single_encoder_supervised_lambda10.0/
+│   └── ...
 ├── single_encoder_skip_lambda10.0/
 │   └── ...
-├── dual_encoder_lambda10.0/
+├── single_encoder_skip_supervised_lambda10.0/
 │   └── ...
-└── dual_encoder_skip_lambda10.0/
-    └── ...
+└── (similarly for dual_encoder variants)
 ```
 
 ## Training Curves
@@ -91,9 +110,9 @@ For dual decoder variants, plots show:
 
 Expected files in `im_dir`:
 - `XX_YY_bin.npy`: Projections (XX=phase, YY=projection number)
-- `DVF_XX_mha.npy`: Ground truth deformation fields (shape: [H,W,D,3])
-- `subCT_XX_mha.npy`: Target volumes
+- `subCT_XX_mha.npy`: Target volumes (required for both supervised and unsupervised)
 - `subCT_06_mha.npy`: Source volume (reference phase)
+- `DVF_XX_mha.npy`: Ground truth deformation fields (shape: [H,W,D,3]) - **only required for supervised learning**
 - `sub_Abdomen_mha.npy`: Abdomen mask
 
 All data normalized to [0, 1].
@@ -103,6 +122,7 @@ All data normalized to [0, 1].
 **Model:**
 - `--architecture`: `single_encoder`, `dual_encoder`, `original`
 - `--skip_connections`: Enable U-Net skip connections (dual decoder only)
+- `--supervised`: Use supervised learning (L2 on flow). Default is unsupervised (L1 on volume)
 - `--image_loss_weight`: Weight λ for image loss (default: 10.0)
 
 **Training:**
@@ -111,7 +131,7 @@ All data normalized to [0, 1].
 - `--batch_size`: Batch size (default: 8)
 
 **Network:**
-- `--int_steps`: Flow integration steps (default: 7)
+- `--int_steps`: Flow integration steps (default: 10)
 - `--im_size`: Volume resolution (default: 128)
 
 ## Joint Training Details
@@ -119,10 +139,14 @@ All data normalized to [0, 1].
 Both motion and image decoders train simultaneously:
 
 1. **Forward passes**: 
-   - Motion mode: encoder → motion decoder → L2 loss
+   - Motion mode: encoder → motion decoder
+     - Supervised: L2 loss on predicted flow vs ground truth flow
+     - Unsupervised: L1 loss on warped volume vs target volume
    - Image mode: encoder → motion decoder (frozen) → image decoder → L1 loss
 
-2. **Combined loss**: `L_total = L2(flow) + λ * L1(volume)`
+2. **Combined loss**: 
+   - Supervised: `L_total = L2(flow) + λ * L1(volume)`
+   - Unsupervised: `L_total = L1(warped_volume) + λ * L1(synthesized_volume)`
 
 3. **Gradient updates**: All trainable parameters updated together
 
@@ -130,9 +154,14 @@ Both motion and image decoders train simultaneously:
 
 ## Loss Functions
 
-**Motion Loss (L2):**
+**Supervised Motion Loss (L2):**
 ```python
 motion_loss = MSE(predicted_flow, target_flow)
+```
+
+**Unsupervised Motion Loss (L1):**
+```python
+motion_loss = L1(warped_source_volume, target_volume)
 ```
 
 **Image Loss (L1):**
@@ -142,7 +171,11 @@ image_loss = L1(reconstructed_volume, target_volume)
 
 **Total Loss:**
 ```python
-total_loss = motion_loss + λ * image_loss
+# Supervised
+total_loss = L2(flow) + λ * L1(volume)
+
+# Unsupervised (default)
+total_loss = L1(warped_volume) + λ * L1(synthesized_volume)
 ```
 
 ## Model Loading & Inference
@@ -154,6 +187,7 @@ import torch
 # Load model
 model = SingleEncoderDualDecoder(
     im_size=128, 
+    int_steps=7, 
     skip_connections=True
 )
 checkpoint = torch.load('outputs/single_encoder_skip_lambda10.0/weights/best_model.pth')
@@ -187,12 +221,6 @@ Motion decoder features pass to image decoder at matching resolution levels:
 - No warping required (features in same space)
 - Concatenation before each upsampling block
 - Channel dimensions adjusted automatically
-
-### Flow Integration
-
-All architectures use diffeomorphic flow integration:
-- `int_steps=0`: No integration (velocity field output)
-- `int_steps>0`: Scaling and squaring for diffeomorphic deformation
 
 ## Installation
 
