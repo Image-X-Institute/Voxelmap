@@ -67,8 +67,9 @@ for arch in "${ARCHITECTURES[@]}"; do
     
     # For original architecture, only train baseline
     if [ "$arch" == "original" ]; then
+        # Unsupervised
         echo "========================================="
-        echo "Training: $arch (baseline)"
+        echo "Training: $arch (unsupervised)"
         echo "========================================="
         python train2.py \
             --architecture $arch \
@@ -80,31 +81,57 @@ for arch in "${ARCHITECTURES[@]}"; do
             --int_steps $INT_STEPS
         
         echo ""
+        
+        # Supervised
+        echo "========================================="
+        echo "Training: $arch (supervised)"
+        echo "========================================="
+        python train2.py \
+            --architecture $arch \
+            --supervised \
+            --im_dir $IM_DIR \
+            --im_size $IM_SIZE \
+            --batch_size $BATCH_SIZE \
+            --epochs $EPOCHS \
+            --lr $LR \
+            --int_steps $INT_STEPS
+        
+        echo ""
         continue
     fi
     
-    # For dual decoder architectures, train with/without skip connections
+    # For dual decoder architectures, train with/without skip connections and supervised/unsupervised
     for skip_flag in "" "--skip_connections"; do
         skip_name=""
         if [ ! -z "$skip_flag" ]; then
             skip_name=" + Skip"
         fi
         
-        echo "========================================="
-        echo "Training: $arch${skip_name}"
-        echo "========================================="
-        python train2.py \
-            --architecture $arch \
-            $skip_flag \
-            --im_dir $IM_DIR \
-            --im_size $IM_SIZE \
-            --batch_size $BATCH_SIZE \
-            --epochs $EPOCHS \
-            --lr $LR \
-            --int_steps $INT_STEPS \
-            --image_loss_weight $IMAGE_LOSS_WEIGHT
-        
-        echo ""
+        for supervised_flag in "" "--supervised"; do
+            supervised_name=""
+            if [ ! -z "$supervised_flag" ]; then
+                supervised_name=" (supervised)"
+            else
+                supervised_name=" (unsupervised)"
+            fi
+            
+            echo "========================================="
+            echo "Training: $arch${skip_name}${supervised_name}"
+            echo "========================================="
+            python train2.py \
+                --architecture $arch \
+                $skip_flag \
+                $supervised_flag \
+                --im_dir $IM_DIR \
+                --im_size $IM_SIZE \
+                --batch_size $BATCH_SIZE \
+                --epochs $EPOCHS \
+                --lr $LR \
+                --int_steps $INT_STEPS \
+                --image_loss_weight $IMAGE_LOSS_WEIGHT
+            
+            echo ""
+        done
     done
 done
 
