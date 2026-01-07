@@ -10,14 +10,13 @@ This framework implements deformable registration between:
 
 ## Architecture Variants
 
-Four architectures available for ablation studies:
+Three architectures available for ablation studies:
 
 | Architecture | Description | Encoder | Fusion |
 |-------------|-------------|---------|--------|
 | `original_mri` | Separate 2D encoders → 2D-to-3D transform | 2D (dual stream) | Bottleneck concatenation |
+| `original_mri_3d` | 2D encoders for target + 3D for source volume | Mixed (2D+3D) | Late fusion |
 | `simple_3d` | Embed projections, single 3D encoder-decoder | 3D (single) | Early fusion |
-| `dual_stream_2d` | Separate 2D encoders with early fusion | 2D (dual stream) | Pre-transform concatenation |
-| `hybrid` | 2D encoders for projections + 3D for volume | Mixed | Late fusion |
 
 ## Installation
 
@@ -27,8 +26,8 @@ pip install torch numpy matplotlib
 
 Required utilities modules:
 - `utilities.layers` - VecInt, SpatialTransformer
-- `utilities.losses` - loss functions
 - `utilities.modelio` - LoadableModel base class
+- `utilities.networks` - Network architectures
 
 ## Usage
 
@@ -47,7 +46,7 @@ python train.py \
 **Unsupervised (image-based loss):**
 ```bash
 python train.py \
-    --architecture simple_3d \
+    --architecture original_mri_3d \
     --skip_connections \
     --epochs 50
 ```
@@ -56,7 +55,7 @@ python train.py \
 
 Test all architectures:
 ```bash
-for arch in original_mri simple_3d dual_stream_2d hybrid; do
+for arch in original_mri original_mri_3d simple_3d; do
     python train.py --architecture $arch --supervised --epochs 50
     python train.py --architecture $arch --epochs 50
 done
@@ -132,17 +131,18 @@ y_source, flow = model(source_c, source_s, target_c, target_s, source_vol)
 
 ### Supervised
 ```python
-loss = flow_mask.loss(target_flow, pred_flow, mask)
+criterion = nn.MSELoss()
+loss = criterion(pred_flow, target_flow)
 ```
 
 ### Unsupervised
-Requires implementation in `utilities.losses`:
 ```python
-class UnsupervisedLoss:
-    def loss(self, target_c, target_s, warped_vol, flow):
-        # Image similarity (MSE/NCC on DRRs from warped volume)
-        # + flow regularization (gradient penalty)
-        pass
+criterion = nn.MSELoss()
+# Generate projections from warped volume
+pred_c = torch.mean(warped_vol, dim=2)  # coronal
+pred_s = torch.mean(warped_vol, dim=4)  # sagittal
+# MSE loss on both projections
+loss = (criterion(pred_c, target_c) + criterion(pred_s, target_s)) / 2.0
 ```
 
 ## Output Files
