@@ -85,7 +85,7 @@ echo "========================================="
 echo ""
 
 # Array of architectures
-ARCHITECTURES=("original_mri" "simple_3d" "dual_stream_2d" "hybrid")
+ARCHITECTURES=("original_mri" "original_mri_3d" "simple_3d")
 
 # Build base command
 BASE_CMD="python train.py \
