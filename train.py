@@ -123,7 +123,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, supervised):
         optimizer.step()
         total_loss += loss.item()
     
-    return total_loss / len(dataloader.dataset)
+    return total_loss / len(dataloader)
 
 
 def validate_epoch(model, dataloader, criterion, device, supervised):
@@ -152,7 +152,7 @@ def validate_epoch(model, dataloader, criterion, device, supervised):
             
             total_loss += loss.item()
     
-    return total_loss / len(dataloader.dataset)
+    return total_loss / len(dataloader)
 
 
 def main():
@@ -239,6 +239,10 @@ def main():
     min_val_loss = float('inf')
     train_losses, val_losses = [], []
     
+    # Create output directories
+    os.makedirs('weights', exist_ok=True)
+    os.makedirs('plots', exist_ok=True)
+    
     for epoch in range(1, args.epochs + 1):
         # Train
         train_loss = train_epoch(model, trainloader, optimizer, criterion, device, args.supervised)
@@ -259,8 +263,7 @@ def main():
         val_losses.append(val_loss)
         
         # Save best model
-        if val_loss < min_val_loss:
-            os.makedirs('weights', exist_ok=True)
+        if val_loss <= min_val_loss:
             torch.save(model.state_dict(), f'weights/{args.output_name}.pth')
             min_val_loss = val_loss
             print(f'  -> Saved best model (val loss: {val_loss:.4f})')
