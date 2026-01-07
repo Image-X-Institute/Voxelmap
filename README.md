@@ -160,6 +160,3 @@ plots/
 ```
 
 Filenames encode: `{architecture}_{mode}_{skip}_{integration}`
-## License
-
-[Specify your license here]
