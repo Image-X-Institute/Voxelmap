@@ -134,13 +134,13 @@ for epoch in range(1, epoch_num + 1):
     model.eval()
     with torch.no_grad():
         for j, valdata in enumerate(valloader, 0):
-            target_slice_c, target_slice_s, source_slice_c, source_slice_s, source_abdomen, target_flow = data[
+            target_slice_c, target_slice_s, source_slice_c, source_slice_s, source_abdomen, target_flow = valdata[
                 'target_slice_c'].to(device), \
-                data['target_slice_s'].to(device), \
-                data['source_slice_c'].to(device), \
-                data['source_slice_s'].to(device), \
-                data['source_abdomen'].to(device), \
-                data['target_flow'].to(device)
+                valdata['target_slice_s'].to(device), \
+                valdata['source_slice_c'].to(device), \
+                valdata['source_slice_s'].to(device), \
+                valdata['source_abdomen'].to(device), \
+                valdata['target_flow'].to(device)
 
             dummy_vol = torch.zeros(source_abdomen.shape).to(device)
             _, predict_flow = model.forward(source_slice_c, source_slice_s, target_slice_c, target_slice_s, dummy_vol)
