@@ -162,16 +162,16 @@ for epoch in range(1, epoch_num + 1):
     with torch.no_grad():
         for j, valdata in enumerate(valloader, 0):
             source_real_c, source_imag_c, source_real_s, source_imag_s, target_real_c, target_imag_c, target_real_s, target_imag_s, source_abdomen, target_flow = \
-            data['source_real_c'].to(device), \
-                data['source_imag_c'].to(device), \
-                data['source_real_s'].to(device), \
-                data['source_imag_s'].to(device), \
-                data['target_real_c'].to(device), \
-                data['target_imag_c'].to(device), \
-                data['target_real_s'].to(device), \
-                data['target_imag_s'].to(device), \
-                data['source_abdomen'].to(device), \
-                data['target_flow'].to(device)
+            valdata['source_real_c'].to(device), \
+                valdata['source_imag_c'].to(device), \
+                valdata['source_real_s'].to(device), \
+                valdata['source_imag_s'].to(device), \
+                valdata['target_real_c'].to(device), \
+                valdata['target_imag_c'].to(device), \
+                valdata['target_real_s'].to(device), \
+                valdata['target_imag_s'].to(device), \
+                valdata['source_abdomen'].to(device), \
+                valdata['target_flow'].to(device)
 
             _, predict_flow = model.forward(source_real_c, source_imag_c, source_real_s, source_imag_s,
                                                 target_real_c, target_imag_c, target_real_s, target_imag_s, source_abdomen)
