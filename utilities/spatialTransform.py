@@ -1,6 +1,6 @@
 # from voxelmorph repository (https://github.com/voxelmorph/voxelmorph)
-import layers
-from modelio import LoadableModel, store_config_args
+import utilities.layers
+from utilities.modelio import LoadableModel, store_config_args
 
 class Network(LoadableModel):
 
