@@ -12,10 +12,10 @@ def store_config_args(func):
     model loading - see LoadableModel.
     """
 
-    attrs, varargs, varkw, defaults = inspect.getargspec(func)
-    #full_arg_spec_obj = inspect.getargspec(func)
-    #defaults = full_arg_spec_obj.defaults
-    #attrs = full_arg_spec_obj.attrs
+    # Use getfullargspec instead of deprecated getargspec
+    argspec = inspect.getfullargspec(func)
+    attrs = argspec.args
+    defaults = argspec.defaults
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
