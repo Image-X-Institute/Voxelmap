@@ -123,11 +123,11 @@ for epoch in range(1, epoch_num + 1):
     model.eval()
     with torch.no_grad():
         for j, valdata in enumerate(valloader, 0):
-            source_proj, target_proj, source_vol, source_abdomen, target_flow = data['source_projections'].to(device), \
-                                                                                data['target_projections'].to(device), \
-                                                                                data['source_volumes'].to(device), \
-                                                                                data['source_abdomen'].to(device), \
-                                                                                data['target_flow'].to(device)
+            source_proj, target_proj, source_vol, source_abdomen, target_flow = valdata['source_projections'].to(device), \
+                                                                                valdata['target_projections'].to(device), \
+                                                                                valdata['source_volumes'].to(device), \
+                                                                                valdata['source_abdomen'].to(device), \
+                                                                                valdata['target_flow'].to(device)
 
             _, predict_flow = model.forward(source_proj, target_proj, source_vol)
             loss = flow_mask.loss(target_flow, predict_flow, source_abdomen)
