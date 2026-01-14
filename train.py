@@ -39,7 +39,7 @@ class SupervisedDataset(Dataset):
         source_s = self._normalize(source_slice[1])
         
         # Load source volume
-        source_vol = np.load(os.path.join(self.im_dir, 'sub_Abdomen_mha.npy'))
+        source_vol = np.load(os.path.join(self.im_dir, 'sub_MRI_06_mha.npy'))
         
         return {
             'target_c': torch.from_numpy(target_c[None].astype(np.float32)),
@@ -73,13 +73,18 @@ class UnsupervisedDataset(Dataset):
         target_s = self._normalize(target_slice[1])
         
         # Load and normalize source projections
+        phase_num = target_file[:2]
         source_file = '06_' + target_file[3:]
         source_slice = np.load(os.path.join(self.im_dir, source_file))
         source_c = self._normalize(source_slice[0])
         source_s = self._normalize(source_slice[1])
         
         # Load source volume
-        source_vol = np.load(os.path.join(self.im_dir, 'sub_Abdomen_mha.npy'))
+        source_vol = np.load(os.path.join(self.im_dir, 'sub_MRI_06_mha.npy'))
+        
+        # Load target volume
+        target_vol = np.load(os.path.join(self.im_dir, 'sub_MRI_' + phase_num + '_mha.npy'))
+        
         
         return {
             'target_c': torch.from_numpy(target_c[None].astype(np.float32)),
@@ -87,6 +92,7 @@ class UnsupervisedDataset(Dataset):
             'source_c': torch.from_numpy(source_c[None].astype(np.float32)),
             'source_s': torch.from_numpy(source_s[None].astype(np.float32)),
             'source_vol': torch.from_numpy(source_vol[None].astype(np.float32))
+            'target_vol': torch.from_numpy(target_vol[None].astype(np.float32))
         }
     
     def _normalize(self, img):
@@ -96,13 +102,22 @@ class UnsupervisedDataset(Dataset):
 def train_epoch(model, dataloader, optimizer, criterion, device, supervised):
     model.train()
     total_loss = 0.0
-    
-    for data in dataloader:
-        target_c = data['target_c'].to(device)
-        target_s = data['target_s'].to(device)
-        source_c = data['source_c'].to(device)
-        source_s = data['source_s'].to(device)
-        source_vol = data['source_vol'].to(device)
+
+    if supervised: 
+        for data in dataloader:
+            target_c = data['target_c'].to(device)
+            target_s = data['target_s'].to(device)
+            source_c = data['source_c'].to(device)
+            source_s = data['source_s'].to(device)
+            source_vol = data['source_vol'].to(device)
+    else:
+        for data in dataloader:
+            target_c = data['target_c'].to(device)
+            target_s = data['target_s'].to(device)
+            source_c = data['source_c'].to(device)
+            source_s = data['source_s'].to(device)
+            source_vol = data['source_vol'].to(device)
+            target_vol = data['source_vol'].to(device)
         
         optimizer.zero_grad()
         
@@ -114,10 +129,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, supervised):
             target_flow = data['target_flow'].to(device)
             loss = criterion(pred_flow, target_flow)
         else:
-            # Generate projections from warped volume
-            pred_c = torch.mean(y_source, dim=2)  # coronal
-            pred_s = torch.mean(y_source, dim=4)  # sagittal
-            loss = (criterion(pred_c, target_c) + criterion(pred_s, target_s)) / 2.0
+            loss = criterion(y_source, target_vol)
         
         loss.backward()
         optimizer.step()
@@ -131,12 +143,21 @@ def validate_epoch(model, dataloader, criterion, device, supervised):
     total_loss = 0.0
     
     with torch.no_grad():
-        for data in dataloader:
-            target_c = data['target_c'].to(device)
-            target_s = data['target_s'].to(device)
-            source_c = data['source_c'].to(device)
-            source_s = data['source_s'].to(device)
-            source_vol = data['source_vol'].to(device)
+        if supervised: 
+            for data in dataloader:
+                target_c = data['target_c'].to(device)
+                target_s = data['target_s'].to(device)
+                source_c = data['source_c'].to(device)
+                source_s = data['source_s'].to(device)
+                source_vol = data['source_vol'].to(device)
+        else:
+            for data in dataloader:
+                target_c = data['target_c'].to(device)
+                target_s = data['target_s'].to(device)
+                source_c = data['source_c'].to(device)
+                source_s = data['source_s'].to(device)
+                source_vol = data['source_vol'].to(device)
+                target_vol = data['source_vol'].to(device)
             
             # Forward pass
             y_source, pred_flow = model(source_c, source_s, target_c, target_s, source_vol)
