@@ -126,23 +126,6 @@ y_source, flow = model(source_c, source_s, target_c, target_s, source_vol)
 **Outputs:**
 - `y_source`: Warped volume `[B, 1, D, H, W]`
 - `flow`: Displacement field `[B, 3, D, H, W]`
-
-## Loss Functions
-
-### Supervised
-```python
-criterion = nn.MSELoss()
-loss = criterion(pred_flow, target_flow)
-```
-
-### Unsupervised
-```python
-criterion = nn.MSELoss()
-# Generate projections from warped volume
-pred_c = torch.mean(warped_vol, dim=2)  # coronal
-pred_s = torch.mean(warped_vol, dim=4)  # sagittal
-# MSE loss on both projections
-loss = (criterion(pred_c, target_c) + criterion(pred_s, target_s)) / 2.0
 ```
 
 ## Output Files
