@@ -113,7 +113,7 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuff
 valloader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=True)
 
 # set up network
-model = network_e.VxmDense(im_size, int_steps=10)
+model = network_e.model(im_size, int_steps=10)
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
