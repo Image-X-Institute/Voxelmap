@@ -170,42 +170,36 @@ class dist3d_mask:
         dz = target_flow[:, 2, :, :, :] - predict_flow[:, 2, :, :, :]
         return torch.sum(torch.sqrt(dx ** 2 + dy ** 2 + dz ** 2)) / torch.count_nonzero(mask)
 
-class BindingEnergy:
+class BendingEnergy:
     """
-    3D binding energy loss
+    3D Bending Energy Loss (Hessian L2-norm)
+    Penalizes the curvature of the displacement field.
     """
 
     def loss(self, flow):
-        # compute derivatives
-        dx = torch.abs(flow[:, :, :, 1:, :] - flow[:, :, :, :-1, :])
-        dx2 = torch.abs(dx[:, :, :, 1:, :] - dx[:, :, :, :-1, :])
-        dxdy = torch.abs(dx[:, :, 1:, :, :] - dx[:, :, :-1, :, :])
+        # Assuming flow shape: [B, 3, D, H, W]
+        # Coordinates: z=dim2, y=dim3, x=dim4
+        
+        # 1st order differences
+        dz = flow[:, :, 1:, :, :] - flow[:, :, :-1, :, :]
+        dy = flow[:, :, :, 1:, :] - flow[:, :, :, :-1, :]
+        dx = flow[:, :, :, :, 1:] - flow[:, :, :, :, :-1]
 
-        dy = torch.abs(flow[:, :, 1:, :, :] - flow[:, :, :-1, :, :])
-        dy2 = torch.abs(dy[:, :, 1:, :, :] - dy[:, :, :-1, :, :])
-        dydz = torch.abs(dy[:, :, :, :, 1:] - dy[:, :, :, :, :-1])
+        # 2nd order direct derivatives (Hessian diagonal)
+        dz2 = dz[:, :, 1:, :, :] - dz[:, :, :-1, :, :]
+        dy2 = dy[:, :, :, 1:, :] - dy[:, :, :, :-1, :]
+        dx2 = dx[:, :, :, :, 1:] - dx[:, :, :, :, :-1]
 
-        dz = torch.abs(flow[:, :, :, :, 1:] - flow[:, :, :, :, :-1])
-        dz2 = torch.abs(dz[:, :, :, :, 1:] - dz[:, :, :, :, :-1])
-        dxdz = torch.abs(dx[:, :, :, :, 1:] - dx[:, :, :, :, :-1])
+        # 2nd order mixed derivatives
+        dzdy = dz[:, :, :, 1:, :] - dz[:, :, :, :-1, :]
+        dzdx = dz[:, :, :, :, 1:] - dz[:, :, :, :, :-1]
+        dydx = dy[:, :, :, :, 1:] - dy[:, :, :, :, :-1]
 
-        # reshape tensors
-        dx2 = dx2[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-        dxdy = dxdy[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-
-        dy2 = dy2[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-        dydz = dydz[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-
-        dz2 = dz2[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-        dxdz = dxdz[:, :, :flow.shape[2] - 2, :flow.shape[3] - 2, :flow.shape[4] - 2]
-
-        # sum values
-        loss = torch.mean(dx2 * dx2)
-        loss += torch.mean(dy2 * dy2)
-        loss += torch.mean(dz2 * dz2)
-        loss += 2 * torch.mean(dxdy * dxdy)
-        loss += 2 * torch.mean(dydz * dydz)
-        loss += 2 * torch.mean(dxdz * dxdz)
+        # Standard Bending Energy = sum of squares of all 2nd order partials
+        # Using mean to keep loss scale invariant to resolution
+        loss = torch.mean(dz2**2) + torch.mean(dy2**2) + torch.mean(dx2**2)
+        loss += 2 * (torch.mean(dzdy**2) + torch.mean(dzdx**2) + torch.mean(dydx**2))
+        
         return loss
 
 class dice:
