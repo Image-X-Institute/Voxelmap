@@ -4,24 +4,41 @@ import numpy as np
 from utilities import layers
 from utilities.modelio import LoadableModel, store_config_args
 
+
 class net2Dto3D(nn.Module):
 
-    def __init__(self, im_size):
+    def __init__(self, im_size, nb_features=None, nb_levels=None, feat_mult=1):
         super().__init__()
         """
         Parameters:
             im_size: Input shape. e.g. 128
+            nb_features: Unet convolutional features. Can be specified via a list of lists with
+                the form [[encoder feats], [decoder feats]], or as a single integer. If None (default),
+                the unet features are defined by the default config described in the class documentation.
+            nb_levels: Number of levels in unet. Only used when nb_features is an integer. Default is None.
+            feat_mult: Per-level feature multiplier. Only used when nb_features is an integer. Default is 1.
         """
 
         # build feature list automatically
-        enc_nf = []
-        for nb in range(2, int(np.log2(im_size)) + 2):
-            enc_nf.append(2 ** nb)
-
-        dec_nf = enc_nf[::-1]
-        dec_nf.append(3)
-
-        self.enc_nf, self.dec_nf = enc_nf, dec_nf
+        if isinstance(nb_features, int):
+            if nb_levels is None:
+                raise ValueError('must provide unet nb_levels if nb_features is an integer')
+            feats = np.round(nb_features * feat_mult ** np.arange(nb_levels)).astype(int)
+            self.enc_nf = feats[:-1]
+            self.dec_nf = np.flip(feats)
+        elif nb_levels is not None:
+            raise ValueError('cannot use nb_levels if nb_features is not an integer')
+        else:
+            # Default configuration if nb_features is None
+            if nb_features is None:
+                enc_nf = []
+                for nb in range(2, int(np.log2(im_size)) + 2):
+                    enc_nf.append(2 ** nb)
+                dec_nf = enc_nf[::-1]
+                dec_nf.append(3)
+                self.enc_nf, self.dec_nf = enc_nf, dec_nf
+            else:
+                self.enc_nf, self.dec_nf = nb_features
 
         # configure encoder (down-sampling path)
         prev_nf = 2
@@ -40,13 +57,13 @@ class net2Dto3D(nn.Module):
         # configure decoder (up-sampling path)
         prev_nf = 2 * self.dec_nf[0]
         self.uparm = nn.ModuleList()
-        for nf in self.dec_nf[:len(self.dec_nf)]:
+        for nf in self.dec_nf[:-1]:  # All elements except the last (3)
             self.uparm.append(UpBlock(prev_nf, nf))
             prev_nf = nf
 
         # configure extra decoder convolutions (no up-sampling)
         self.extras = nn.ModuleList()
-        for nf in self.dec_nf[len(self.dec_nf)-1:]:
+        for nf in self.dec_nf[-1:]:  # Only the last element (3)
             self.extras.append(ExtraBlock(prev_nf, nf))
             prev_nf = nf
 
@@ -79,21 +96,28 @@ class net2Dto3D(nn.Module):
             x = layer(x)
         return x
 
+
 class model(LoadableModel):
 
     @store_config_args
     def __init__(self,
                  im_size,
+                 nb_unet_features=None,
                  int_steps=10):
         """
         Parameters:
             im_size: Input shape. e.g. 128
+            nb_unet_features: Unet convolutional features. Can be specified via a list of lists with
+                the form [[encoder feats], [decoder feats]], or as a single integer.
             int_steps: Number of flow integration steps. The warp is non-diffeomorphic when this value is 0.
         """
         super().__init__()
 
+        # internal flag indicating whether to return flow or integrated warp during inference
+        self.training = True
+
         # configure core net2Dto3D model
-        self.net2Dto3D_model = net2Dto3D(im_size)
+        self.net2Dto3D_model = net2Dto3D(im_size, nb_features=nb_unet_features)
 
         # configure optional integration layer for diffeomorphic warp
         vol_shape = [im_size, im_size, im_size]
@@ -103,7 +127,6 @@ class model(LoadableModel):
         self.transformer = layers.SpatialTransformer(vol_shape)
 
     def forward(self, source_real_c, source_imag_c, target_real_c, target_imag_c, source_vol):
-
         # concatenate inputs and propagate unet
         cat_real_c = torch.cat([source_real_c, target_real_c], dim=1)
         cat_imag_c = torch.cat([source_imag_c, target_imag_c], dim=1)
@@ -118,6 +141,7 @@ class model(LoadableModel):
 
         # return warped image
         return y_source, pos_flow
+
 
 class DownBlock(nn.Module):
     """
@@ -138,16 +162,19 @@ class DownBlock(nn.Module):
         out = self.activation(conv1 + conv2)
         return out
 
+
 class TransBlock2Dto3D(nn.Module):
     """
     A transformation layer consisting of reshaping
     """
+
     def __init__(self):
         super().__init__()
 
     def forward(self, x):
         x = x.view(-1, round(x.shape[1]), 1, 1, 1)
         return x
+
 
 class UpBlock(nn.Module):
     """
