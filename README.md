@@ -1,20 +1,111 @@
-# Voxelmap
-A deep learning framework for patient-specific 3D intrafraction motion modelling and volumetric imaging
+# Respiratory Motion Estimation from Fluoroscopy — Ablation Study
 
-To get you started right away, we have uploaded some example data at https://ses.library.usyd.edu.au/handle/2123/32282 and have created a Jupyter notebook (tutorial.ipynb), which guides you through the framework. If you use this code, please cite: 
+Deep-learning pipeline for volumetric respiratory motion estimation from 2-D fluoroscopic projections. A source CT volume is warped toward a target respiratory phase by predicting a dense deformation vector field (DVF) conditioned on projection data. The repo implements an ablation study over four network variants, trained in a leave-one-volume-out fashion.
 
-* ["An open-source deep learning framework for respiratory motion monitoring and volumetric imaging during radiation therapy"](https://aapm.onlinelibrary.wiley.com/doi/full/10.1002/mp.18015)
-  
-* ["A patient-specific deep learning framework for 3D motion estimation and volumetric imaging during lung cancer radiotherapy"](https://iopscience.iop.org/article/10.1088/1361-6560/ace1d0/meta)
+## Overview
 
-The key idea behind this framework is that 2D views provide hints about 3D motion. Patient-specific geometric correspondences can be learned from pre-treatment 4D imaging data. Image registration and forward-projection can be used to generate the desired 3D deformation vector fields (DVFs) and 2D projections, which are then used to train a deep neural network. During treatment, a trained neural network can be used to provide insights regarding 3D internal patient anatomy from 2D images acquired in real-time. In particular, the predicted 3D DVF can be used to warp pre-treatment 3D images and contours to provide real-time volumetric imaging as well as the 3D positions of the target and surrounding organs-at-risk.
+Given a fixed source CT volume (phase `06`) and a target 2-D projection, each model predicts a DVF that warps the source volume to match the target phase. Diffeomorphic integration (scaling-and-squaring) and spatial transformation are applied to produce the warped output. Dual variants add a second image-decoder "cycle" branch with learned uncertainty weighting between the two reconstruction losses.
 
-![Proposed clinical workflow](https://github.com/Image-X-Institute/Voxelmap/blob/main/Workflow.jpg)
+## Model Variants
 
-This task can be approached in a variety of ways, yielding a number of different network architectures. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
+| Variant | Inputs | Cycle branch | Notes |
+|---|---|---|---|
+| `proj-single` | source proj, target proj, source vol | — | 2-D projection pair → DVF → warped volume |
+| `proj-dual` | source proj, target proj, source vol | ✓ | `proj-single` + image-decoder cycle branch |
+| `vol-dual` | source vol, target proj | ✓ | Volume + target projection → DVF (no z-coordinate) |
+| `vol-dual-z` | source vol, target proj | ✓ | `vol-dual` + learned z-coordinate channel |
 
-![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
+All variants use a 3-D residual encoder/decoder. Projection features are embedded in 2-D and broadcast along the depth axis before fusion with volumetric features.
 
-Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+## Architecture
 
-This repository is provided for academic and non-commercial research purposes. While the source code is licensed under the MIT License, the underlying methods are protected by US Patent Application US20250285300A1. No license to the patent rights is granted by this repository. Commercial use, including integration into medical devices or for-profit platforms, requires a separate patent license.
+- **Embedders** — 2-D / 3-D residual blocks (`ResBlock2D`, `ResBlock3D`) with GroupNorm.
+- **Encoder** (`Encoder3D`) — strided residual downsampling; channel widths scale with `im_size`.
+- **Decoders** (`Decoder3D`) — transposed-conv upsampling arm followed by tanh "extra" refinement blocks; output 3-channel DVF.
+- **Integration** (`layers.VecInt`) — diffeomorphic vector integration over `int_steps`.
+- **Warping** (`layers.SpatialTransformer`) — applies the integrated DVF to the source volume.
+
+Dual variants expose two learnable parameters, `log_var_dvf` and `log_var_img`, for uncertainty-weighted multi-task loss balancing.
+
+## Repository Layout
+
+```
+network.py            Model definitions + build_model() factory
+train.py              Trains a single (variant, excl_vol) combination
+utilities/
+  layers.py           VecInt, SpatialTransformer
+  modelio.py          LoadableModel, store_config_args
+weights/              Best checkpoints (created at runtime)
+plots/                Per-run loss / uncertainty plots
+logs/                 Per-run training logs
+```
+
+## Data
+
+Set via `IM_DIR` in `train.py` (default `/srv/shared/data/pixelprint`). Expected files:
+
+- `sub_CT_{phase}_mha.npy` — CT volume per phase, reshaped to `128³`.
+- `{phase}_proj_{NNNNN}_bin.npy` — 2-D projections, indexed `1 … 397` per phase.
+
+Eight respiratory phases (`01`–`08`); phase `06` is the fixed source. Global min/max normalisation stats are computed per run over the training phases (excluding the held-out volume).
+
+## Usage
+
+Train a single variant with one volume held out (leave-one-out):
+
+```bash
+python train.py --variant proj-single --excl_vol 01 --gpu 0
+python train.py --variant proj-dual   --excl_vol 03 --gpu 1
+python train.py --variant vol-dual    --excl_vol 05 --gpu 2
+python train.py --variant vol-dual-z  --excl_vol 07 --gpu 3
+```
+
+**Arguments**
+
+- `--variant` — one of `proj-single`, `proj-dual`, `vol-dual`, `vol-dual-z`.
+- `--excl_vol` — volume held out from training (`01`–`08`).
+- `--gpu` — CUDA device index (default `0`).
+
+Outputs per run: a best checkpoint in `weights/`, a loss/uncertainty plot in `plots/`, and a tee'd log in `logs/`.
+
+## Training Configuration
+
+Defined in `train.py` (`TRAIN_CONFIG`):
+
+| Setting | Value |
+|---|---|
+| Epochs | 80 |
+| Learning rate | 1e-5 |
+| Batch size | 4 |
+| Steps per epoch | 3000 |
+| Image size | 128³ |
+| Integration steps | 7 |
+| Optimizer | Adam |
+
+The dataset is re-split 90/10 (train/val) each epoch. Checkpoints are saved on best validation metric (`warp + cycle` L1).
+
+## Loss
+
+- `proj-single` — L1 between warped and target volume.
+- Dual variants — uncertainty-weighted L1 over both the warp output and the cycle output:
+
+  ```
+  L = 0.5·exp(−log_var_dvf)·L1_warp + 0.5·log_var_dvf
+    + 0.5·exp(−log_var_img)·L1_cycle + 0.5·log_var_img
+  ```
+
+  Log-variances are clamped at `LV_CLAMP = -3.0`; a warning is logged when they exceed `LV_WARN = 2.0`.
+
+## Requirements
+
+- Python 3.x
+- PyTorch (CUDA-enabled)
+- NumPy
+- Matplotlib
+
+Requires the `utilities` package (`layers`, `modelio`) on the path.
+
+## Notes
+
+- `build_model(variant, im_size=128, int_steps=7)` is the single entry point for constructing any variant.
+- Setting `int_steps=0` disables diffeomorphic integration.
