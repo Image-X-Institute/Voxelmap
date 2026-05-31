@@ -92,39 +92,3 @@ python train.py \
 Key flags: `--proj-mode {single,cycle}`, `--coupling {decoupled,shared_latent,consistency}`,
 `--supervised` (DVF MSE; omit for unsupervised image + smoothness), `--no-residual`,
 `--residual-scale` (residual bound), `--integrate-steps` (scaling-and-squaring).
-
-### Dataset
-
-`build_dataloaders` in `train.py` ships a synthetic stub so the script runs end-to-end.
-Replace it with the DRR-augmentation / disk-cache dataset. Each batch is a dict:
-
-```
-proj_a      : (B, in_ch, H, W)
-proj_b      : (B, in_ch, H, W)     # proj_mode='cycle' only
-source_vol  : (B, 1, D, H, W)
-target_vol  : (B, 1, D, H, W)
-dvf_true    : (B, 3, D, H, W)      # supervised only
-thorax_mask : (B, 1, D, H, W)      # optional; masks the loss to the thorax
-```
-
-## Check on first run
-
-Statically verified (shape arithmetic, channel matching); **not executed** — install
-`torch` in your environment and confirm:
-
-1. **Displacement units.** The DVF decoder outputs voxel units and `SpatialTransform`
-   assumes voxels. Rescale if your pipeline uses normalised displacements.
-2. **Non-power-of-two projections.** The `ResBlock2d` stride-2 1×1 skip and the residual
-   arm's stride-2 / transpose pairs are exact for `2^n` sizes; odd dimensions cause skip/main
-   mismatches on the add.
-3. **`shared_latent` conditioning** broadcasts a `1×1×1` latent uniformly across the
-   volume — cheap but spatially uniform. If too weak, inject the latent at the decoder's
-   coarse 3D stage instead.
-4. **`lambda_consistency` / `eps`** in `residual_dvf_consistency` is a proxy for "the
-   residual shouldn't explain motion." If it over-suppresses the residual, lower either.
-
-## Suggested experiment
-
-Run `decoupled` vs `consistency` under `proj-mode cycle`, tracking DVF 3D error and image
-RMSE/SSIM separately. If image quality holds while DVF error differs, the coupling is
-acting on the motion field as intended rather than just absorbing error into the residual.
