@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.meshgrid.*")
 
-from network import build_model
+from utilities.network import build_model
 
 # ============================================================================
 # CONFIGURATION
