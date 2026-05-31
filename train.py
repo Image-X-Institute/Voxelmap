@@ -42,7 +42,7 @@ SOURCE_PHASE    = '06'
 PROJS_PER_PHASE = 397
 
 STEPS_PER_EPOCH = 3000
-TRAIN_CONFIG    = dict(epochs=80, lr=1e-5, batch_size=4)
+TRAIN_CONFIG    = dict(epochs=50, lr=1e-5, batch_size=4)
 
 LV_CLAMP = -3.0
 LV_WARN  =  2.0
