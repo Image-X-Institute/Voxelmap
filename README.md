@@ -74,7 +74,7 @@ Defined in `train.py` (`TRAIN_CONFIG`):
 
 | Setting | Value |
 |---|---|
-| Epochs | 80 |
+| Epochs | 50 |
 | Learning rate | 1e-5 |
 | Batch size | 4 |
 | Steps per epoch | 3000 |
