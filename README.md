@@ -8,7 +8,7 @@ Given a fixed source CT volume (phase `06`) and a target 2-D projection, each mo
 
 ## Model Variants
 
-| Variant | Inputs | Cycle branch | Notes |
+| Variant | Inputs | Image synthesis branch | Notes |
 |---|---|---|---|
 | `proj-single` | source proj, target proj, source vol | — | 2-D projection pair → DVF → warped volume |
 | `proj-dual` | source proj, target proj, source vol | ✓ | `proj-single` + image-decoder cycle branch |
