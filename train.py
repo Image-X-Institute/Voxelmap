@@ -25,8 +25,8 @@ from types import SimpleNamespace
 import torch
 from torch.utils.data import DataLoader
 
-from networks import VoxelMapRefine
-from losses import compute_loss
+from utilities.networks import VoxelMapRefine
+from utilities.losses import compute_loss
 
 
 # --------------------------------------------------------------------------- #
