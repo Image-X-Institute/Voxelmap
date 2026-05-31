@@ -1,4 +1,4 @@
-# Respiratory Motion Estimation from Fluoroscopy — convergence pressure and depth encoding
+# Respiratory Motion Estimation from Fluoroscopy - convergence pressure and depth encoding
 
 Deep-learning pipeline for volumetric respiratory motion estimation from 2-D fluoroscopic projections. A source CT volume is warped toward a target respiratory phase by predicting a dense deformation vector field (DVF) conditioned on projection data. The repo implements an ablation study over four network variants, trained in a leave-one-volume-out fashion.
 
