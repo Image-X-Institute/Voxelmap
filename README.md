@@ -1,4 +1,4 @@
-# VoxelMap — Motion-Guided Volume Refinement
+# Motion-Guided Volume Refinement
 
 A patient-specific 2D→3D registration and volumetric imaging model. Given a real-time
 2D projection acquired during a procedure and a source 3D image (e.g. planning CT), the
