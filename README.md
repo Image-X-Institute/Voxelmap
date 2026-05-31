@@ -1,20 +1,130 @@
-# Voxelmap
-A deep learning framework for patient-specific 3D intrafraction motion modelling and volumetric imaging
+# VoxelMap — Motion-Guided Volume Refinement
 
-To get you started right away, we have uploaded some example data at https://ses.library.usyd.edu.au/handle/2123/32282 and have created a Jupyter notebook (tutorial.ipynb), which guides you through the framework. If you use this code, please cite: 
+A patient-specific 2D→3D registration and volumetric imaging model. Given a real-time
+2D projection acquired during a procedure and a source 3D image (e.g. planning CT), the
+network estimates a 3D deformation vector field (DVF) and produces an updated 3D image.
 
-* ["An open-source deep learning framework for respiratory motion monitoring and volumetric imaging during radiation therapy"](https://aapm.onlinelibrary.wiley.com/doi/full/10.1002/mp.18015)
-  
-* ["A patient-specific deep learning framework for 3D motion estimation and volumetric imaging during lung cancer radiotherapy"](https://iopscience.iop.org/article/10.1088/1361-6560/ace1d0/meta)
+The updated image is formed by **sequential refinement** on top of the published
+spatial-transform slot:
 
-The key idea behind this framework is that 2D views provide hints about 3D motion. Patient-specific geometric correspondences can be learned from pre-treatment 4D imaging data. Image registration and forward-projection can be used to generate the desired 3D deformation vector fields (DVFs) and 2D projections, which are then used to train a deep neural network. During treatment, a trained neural network can be used to provide insights regarding 3D internal patient anatomy from 2D images acquired in real-time. In particular, the predicted 3D DVF can be used to warp pre-treatment 3D images and contours to provide real-time volumetric imaging as well as the 3D positions of the target and surrounding organs-at-risk.
+```
+updated 3D image = warp(source, DVF) + bounded residual correction
+```
 
-![Proposed clinical workflow](https://github.com/Image-X-Institute/Voxelmap/blob/main/Workflow.jpg)
+The DVF carries the primary physical explanation (anatomy moves); the residual arm only
+corrects what pure warping cannot capture — interpolation artefacts, local intensity
+mismatch, imperfect deformation, small non-deformable anatomical change. The residual is
+bounded (`tanh * residual_scale`) so the model degrades gracefully to pure warping and
+the DVF remains the dominant term rather than the residual quietly taking over
+reconstruction.
 
-This task can be approached in a variety of ways, yielding a number of different network architectures. Here, in every case, we use a residual network with an encoding arm(s) that generates a low-dimensional feature representation of the input images that is then decoded to predict the desired 3D DVF. We also use scaling and squaring layers to integrate the output of the neural network to encourage diffeomorphic mappings.
+## Files
 
-![Networks](https://github.com/Image-X-Institute/Voxelmap/blob/main/Networks.jpg)
+| File | Contents |
+|------|----------|
+| `networks.py` | Encoder, DVF decoder, scaling-and-squaring integration, spatial transform, residual arm, full `VoxelMapRefine` model. |
+| `losses.py`   | Supervised DVF MSE, unsupervised image + smoothness, cycle consistency, residual–DVF consistency. |
+| `train.py`    | Config, train/val loop, checkpointing, CLI for the experiment matrix. |
 
-Here we provide code for 5 different neural networks. train_a and test_a are used to train and test Network A respectively, and so on. This repository has benefitted greatly from the excellent Voxelmorph repository. You can check out their work here: https://github.com/voxelmorph/voxelmorph
+## Architecture
 
-This repository is provided for academic and non-commercial research purposes. While the source code is licensed under the MIT License, the underlying methods are protected by US Patent Application US20250285300A1. No license to the patent rights is granted by this repository. Commercial use, including integration into medical devices or for-profit platforms, requires a separate patent license.
+Same inputs and outputs across all configurations:
+
+- **Inputs:** 2D projection pair `(B, in_ch, 2^n, 2^n)`, source volume `(B, 1, D, H, W)`.
+- **Outputs:** 3D DVF `(B, 3, D, H, W)` and updated 3D image `(B, 1, D, H, W)`.
+
+Encoding arm: `n` downsampling 2D residual blocks (4×4 s2 → 3×3 s1, BN, ReLU),
+channels doubling each block, reducing `2^n × 2^n` to a `1×1` latent. The latent is
+reshaped to a 3D tensor and passed through `n` upsampling 3D residual blocks; two final
+3×3×3 convs (Tanh then linear) produce a stationary velocity field, integrated to a
+diffeomorphic DVF by scaling-and-squaring. The spatial transform module warps the source
+volume by the DVF; the residual arm refines the result. `n` is derived from `vol_size`
+(`n = log2(vol_size)`), so larger volumes use proportionally larger networks.
+
+## The two switches
+
+### `coupling` — how the residual arm relates to the motion estimator
+
+- **`decoupled`** — the residual arm reads only the warped volume. No pressure on the
+  latent; clean separation of motion vs intensity correction. Risk: nothing ties the
+  residual to the predicted motion, so a good-looking volume can sit on a slightly wrong
+  DVF.
+- **`shared_latent`** — the residual decoder conditions on the *same* latent as the DVF
+  decoder. Regularises the residual toward motion-consistency, but forces one latent to
+  serve two genuinely different objectives (motion + intensity), which can degrade DVF
+  accuracy if the residual's true causes are motion-independent (scatter, beam hardening).
+- **`consistency`** — architecturally identical to `decoupled`, but a consistency loss
+  penalises the residual for encoding displacement the DVF could have explained. Aims for
+  the regularisation benefit of coupling without the latent serving two masters.
+
+`consistency` and `decoupled` share architecture and differ only in the loss, making them
+a clean A/B for whether tying the residual to the DVF helps or hurts **DVF error
+specifically**.
+
+### `proj_mode` — how the DVF is predicted
+
+- **`single`** — one acquired projection pair predicts the DVF.
+- **`cycle`** — two routes (separate encoder/decoder pairs, different input projections)
+  predict the *same* DVF label; a cycle-consistency loss penalises disagreement. This is
+  *earned* convergence pressure: both routes describe the same physical motion, so forcing
+  agreement shapes the latent toward route-invariant motion structure.
+
+> Note the contrast with `shared_latent`: both squeeze through one bottleneck, but
+> `proj_mode='cycle'` squeezes **two views of one thing** (agreement is physically correct),
+> whereas `shared_latent` squeezes **two different things** (agreement isn't required by
+> physics — just capacity competition). Same mechanism, opposite verdict.
+
+Set `use_residual=False` (`--no-residual`) for the pure-warp base embodiment.
+
+## Usage
+
+```bash
+python train.py \
+  --proj-mode cycle \
+  --coupling consistency \
+  --supervised \
+  --vol-size 128 --in-ch 2 \
+  --epochs 50 --batch-size 2 --lr 1e-5 \
+  --alpha 1e-5 --lambda-cycle 1.0 --lambda-consistency 1.0 \
+  --out-dir ./runs --tag p1
+```
+
+Key flags: `--proj-mode {single,cycle}`, `--coupling {decoupled,shared_latent,consistency}`,
+`--supervised` (DVF MSE; omit for unsupervised image + smoothness), `--no-residual`,
+`--residual-scale` (residual bound), `--integrate-steps` (scaling-and-squaring).
+
+### Dataset
+
+`build_dataloaders` in `train.py` ships a synthetic stub so the script runs end-to-end.
+Replace it with the DRR-augmentation / disk-cache dataset. Each batch is a dict:
+
+```
+proj_a      : (B, in_ch, H, W)
+proj_b      : (B, in_ch, H, W)     # proj_mode='cycle' only
+source_vol  : (B, 1, D, H, W)
+target_vol  : (B, 1, D, H, W)
+dvf_true    : (B, 3, D, H, W)      # supervised only
+thorax_mask : (B, 1, D, H, W)      # optional; masks the loss to the thorax
+```
+
+## Check on first run
+
+Statically verified (shape arithmetic, channel matching); **not executed** — install
+`torch` in your environment and confirm:
+
+1. **Displacement units.** The DVF decoder outputs voxel units and `SpatialTransform`
+   assumes voxels. Rescale if your pipeline uses normalised displacements.
+2. **Non-power-of-two projections.** The `ResBlock2d` stride-2 1×1 skip and the residual
+   arm's stride-2 / transpose pairs are exact for `2^n` sizes; odd dimensions cause skip/main
+   mismatches on the add.
+3. **`shared_latent` conditioning** broadcasts a `1×1×1` latent uniformly across the
+   volume — cheap but spatially uniform. If too weak, inject the latent at the decoder's
+   coarse 3D stage instead.
+4. **`lambda_consistency` / `eps`** in `residual_dvf_consistency` is a proxy for "the
+   residual shouldn't explain motion." If it over-suppresses the residual, lower either.
+
+## Suggested experiment
+
+Run `decoupled` vs `consistency` under `proj-mode cycle`, tracking DVF 3D error and image
+RMSE/SSIM separately. If image quality holds while DVF error differs, the coupling is
+acting on the motion field as intended rather than just absorbing error into the residual.
