@@ -1,9 +1,6 @@
 """
 train.py
 
-Trains a single variant / excl_vol combination.
-Called directly or via launch.py.
-
 Usage
 -----
 python train.py --variant proj-single --excl_vol 01 --gpu 0
