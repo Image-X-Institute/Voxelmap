@@ -133,7 +133,7 @@ class ProjectionDataset(Dataset):
 
 
 # ============================================================================
-# LOSS  (unchanged UW(warp, cycle); smoothness & consistency dropped)
+# LOSS
 # ============================================================================
 
 def compute_loss(variant, mdl, y_source, y_cycle, target_vol):
@@ -159,7 +159,7 @@ def compute_loss(variant, mdl, y_source, y_cycle, target_vol):
 
 
 # ============================================================================
-# FORWARD PASS  (bounded-residual substitution on the image head)
+# FORWARD PASS
 # ============================================================================
 
 def forward(variant, mdl, batch, device, residual_scale):
