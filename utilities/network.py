@@ -3,11 +3,15 @@ network.py
 
 Unified model definitions for the ablation study.
 
+Consequences for the implementation:
+  * dvf_decoder : out_ch=3 -> integrate -> spatial transform -> warped vol
+  * img_decoder : out_ch=1 -> intensity volume
+
 Variants
 --------
-  proj-single  : 2-D projection pair → DVF → warped volume  (no cycle)
-  proj-dual    : proj-single + image-decoder cycle branch
-  vol-dual     : source volume + target projection → DVF → warped volume  (cycle, no z)
+  proj-single  : 2-D projection pair -> DVF -> warped volume  (no image arm)
+  proj-dual    : proj-single + image-decoder arm (manifold constraint)
+  vol-dual     : source volume + target projection -> DVF + image arm
   vol-dual-z   : vol-dual + learned z-coordinate channel
 
 Factory
@@ -140,6 +144,11 @@ class ProjModel(LoadableModel):
     """
     Inputs : source_proj [B,1,H,W], target_proj [B,1,H,W], source_vol [B,1,D,H,W]
     Returns: (y_source, dvf, y_cycle|None, None, log_var_dvf|None, log_var_img|None, None)
+
+    y_source : source_vol warped by integrated DVF (flow arm)
+    y_cycle  : synthesised intensity volume from the image arm (dual only).
+               This is an IMAGE in intensity space -- it is NOT integrated
+               and NOT passed through the spatial transformer.
     """
 
     @store_config_args
@@ -152,14 +161,17 @@ class ProjModel(LoadableModel):
         self.src_proj_embed = ResBlock2D(1, embed_ch)
         self.tgt_proj_embed = ResBlock2D(1, embed_ch)
 
-        # 3-D encoder: 2×embed_ch (proj features broadcast) + 1 (source vol)
+        # 3-D encoder: 2x embed_ch (proj features broadcast) + 1 (source vol)
         enc_in = embed_ch * 2 + 1
         self.encoder     = Encoder3D(enc_in, im_size)
         enc_nf           = self.encoder.nfs
+
+        # Flow arm: 3-channel DVF
         self.dvf_decoder = Decoder3D(enc_nf, out_ch=3)
 
         if dual:
-            self.img_decoder = Decoder3D(enc_nf, out_ch=3)
+            # Image arm: 1-channel intensity volume (different output space).
+            self.img_decoder = Decoder3D(enc_nf, out_ch=1)
             self.log_var_dvf = nn.Parameter(torch.zeros(1))
             self.log_var_img = nn.Parameter(torch.zeros(1))
         else:
@@ -180,16 +192,14 @@ class ProjModel(LoadableModel):
 
         bottleneck = self.encoder(x)
 
+        # ── Flow arm: decode DVF, integrate, warp source ────────────────
         dvf = self.dvf_decoder(bottleneck)
         if self.integrate:
             dvf = self.integrate(dvf)
         y_source = self.transformer(source_vol, dvf)
 
         if self.dual:
-            img_flow = self.img_decoder(bottleneck)
-            if self.integrate:
-                img_flow = self.integrate(img_flow)
-            y_cycle = self.transformer(source_vol, img_flow)
+            y_cycle = torch.sigmoid(self.img_decoder(bottleneck))
             return y_source, dvf, y_cycle, None, self.log_var_dvf, self.log_var_img, None
 
         return y_source, dvf, None, None, None, None, None
@@ -203,6 +213,10 @@ class VolModel(LoadableModel):
     """
     Inputs : source_vol [B,1,D,H,W], target_proj [B,1,H,W]
     Returns: (y_source, dvf, y_cycle, None, log_var_dvf, log_var_img, None)
+
+    Always dual: a flow arm (DVF) and an image arm (intensity volume) share
+    the encoder bottleneck. y_cycle is a synthesised intensity volume --
+    NOT integrated, NOT spatially transformed.
     """
 
     @store_config_args
@@ -216,8 +230,10 @@ class VolModel(LoadableModel):
         enc_in = embed_ch * 2 + (1 if use_z_coord else 0)
         self.encoder     = Encoder3D(enc_in, im_size)
         enc_nf           = self.encoder.nfs
+
+        # Flow arm (DVF) and image arm (intensity) share the bottleneck.
         self.dvf_decoder = Decoder3D(enc_nf, out_ch=3)
-        self.img_decoder = Decoder3D(enc_nf, out_ch=3)
+        self.img_decoder = Decoder3D(enc_nf, out_ch=1)
 
         self.log_var_dvf = nn.Parameter(torch.zeros(1))
         self.log_var_img = nn.Parameter(torch.zeros(1))
@@ -244,15 +260,14 @@ class VolModel(LoadableModel):
 
         bottleneck = self.encoder(x)
 
+        # ── Flow arm: decode DVF, integrate, warp source ────────────────
         dvf = self.dvf_decoder(bottleneck)
         if self.integrate:
             dvf = self.integrate(dvf)
         y_source = self.transformer(source_vol, dvf)
 
-        img_flow = self.img_decoder(bottleneck)
-        if self.integrate:
-            img_flow = self.integrate(img_flow)
-        y_cycle = self.transformer(source_vol, img_flow)
+        # ── Image arm: decode intensity volume DIRECTLY ─────────────────
+        y_cycle = torch.sigmoid(self.img_decoder(bottleneck))
 
         return y_source, dvf, y_cycle, None, self.log_var_dvf, self.log_var_img, None
 
@@ -267,7 +282,6 @@ _VARIANTS = {
     'vol-dual':    dict(cls=VolModel,  kwargs=dict(use_z_coord=False)),
     'vol-dual-z':  dict(cls=VolModel,  kwargs=dict(use_z_coord=True)),
 }
-
 
 def build_model(variant, im_size=128, int_steps=7):
     if variant not in _VARIANTS:
