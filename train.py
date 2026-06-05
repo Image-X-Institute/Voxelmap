@@ -1,14 +1,31 @@
 """
-Bounded-residual variant of the convergence-pressure trainer.
+train_irb.py
 
-The image-decoder head (out[2]) is reinterpreted as a bounded residual correction
-on top of the DVF-warped volume (out[0]):
+Self-contained trainer for the IRB ablation. Own config, normalisation,
+dataset, masked losses, and deep supervision. The only cross-file reference is
+`build_model` (which model to construct) imported from network_irb.
 
-    updated = warped + residual_scale * tanh(image_head - warped)
+Modes / depth
+-------------
+  --mode baseline                 initial decoder only (no IRB)
+  --mode dvf   --num_irb {1,2,3}  + N shared-weight DVF-only IRBs
+  --mode dual  --num_irb {1,2,3}  + N shared-weight dual (DVF + bounded image) IRBs
+  --mode bigfly                   deeper one-shot decoder, no recurrence (control)
 
-At residual_scale = 0 this is pure warp (control). The UW(warp, cycle) loss block
-is unchanged from the convergence-pressure script; smoothness and consistency are
-intentionally absent (scaling-and-squaring carries the regularisation).
+Losses (all reconstruction terms computed INSIDE the thoracic mask)
+-------------------------------------------------------------------
+  * Deep-supervision reconstruction: gamma-weighted masked L1 over y_steps,
+    later steps weighted more heavily (weight gamma^(T - t)).
+  * DVF smoothness: gradient penalty on the final flow (unmasked; smoothness is
+    wanted across the boundary too).
+  * Bounded image-residual penalty (dual only): masked L1 of each dimg toward 0.
+
+Usage
+-----
+python train_irb.py --mode baseline               --excl_vol 01 --gpu 0
+python train_irb.py --mode dvf   --num_irb 2       --excl_vol 01 --gpu 1
+python train_irb.py --mode dual  --num_irb 3       --excl_vol 01 --gpu 2
+python train_irb.py --mode bigfly                  --excl_vol 01 --gpu 3
 """
 
 import os
@@ -26,41 +43,47 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.meshgrid.*")
-from utilities.network import build_model
+
+from network_irb import build_model
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 IM_DIR          = '/srv/shared/data/pixelprint'
+MASK_FILE       = 'sub_CorrectMask_mha.npy'   # in the working directory
 IM_SIZE         = 128
 INT_STEPS       = 7
 ALL_VOLS        = ['01', '02', '03', '04', '05', '06', '07', '08']
 SOURCE_PHASE    = '06'
 PROJS_PER_PHASE = 397
+TRAIN_CONFIG    = dict(epochs=100, lr=1e-5, batch_size=4)
 
-STEPS_PER_EPOCH = 3000
-TRAIN_CONFIG    = dict(epochs=50, lr=1e-5, batch_size=4)
+IMG_EPS      = 0.05    # bound on the per-step image residual: eps * tanh(.)
+DS_GAMMA     = 0.8     # deep-supervision decay: step t weight = gamma^(T - t)
+                       # (RAFT default; step axis uses a fixed ordering prior,
+                       #  term axis uses learned uncertainty weighting instead)
 
-LV_CLAMP = -3.0
-LV_WARN  =  2.0
-
-PROJ_VARIANTS = {'proj-single', 'proj-dual'}
-VOL_VARIANTS  = {'vol-dual', 'vol-dual-z'}
+# Optional: freeze the dual image head for the first K epochs so the DVF learns
+# to do the geometric work before the image residual is allowed to contribute.
+IMG_FREEZE_EPOCHS = 5
 
 
-def ckpt_path(variant, excl_vol, rscale):
-    return os.path.join('weights', f'{variant}_excl{excl_vol}_rs{rscale:g}_best.pth')
+def tag(mode, num_irb):
+    return mode if mode in ('baseline', 'bigfly') else f'{mode}{num_irb}'
 
-def plot_path(variant, excl_vol, rscale):
-    return os.path.join('plots', f'{variant}_excl{excl_vol}_rs{rscale:g}_loss.png')
+def ckpt_path(mode, num_irb, excl_vol):
+    return os.path.join('weights', f'{tag(mode, num_irb)}_excl{excl_vol}_best.pth')
 
-def log_path(variant, excl_vol, rscale):
-    return os.path.join('logs', f'{variant}_excl{excl_vol}_rs{rscale:g}.log')
+def plot_path(mode, num_irb, excl_vol):
+    return os.path.join('plots', f'{tag(mode, num_irb)}_excl{excl_vol}_loss.png')
+
+def log_path(mode, num_irb, excl_vol):
+    return os.path.join('logs', f'{tag(mode, num_irb)}_excl{excl_vol}.log')
 
 
 # ============================================================================
-# NORMALISATION
+# NORMALISATION  +  MASK
 # ============================================================================
 
 def compute_global_stats(excl_vol):
@@ -70,15 +93,13 @@ def compute_global_stats(excl_vol):
     prj_min, prj_max = np.inf, -np.inf
     for phase in phases:
         v = np.load(os.path.join(IM_DIR, f'sub_CT_{phase}_mha.npy'))
-        vol_min = min(vol_min, v.min())
-        vol_max = max(vol_max, v.max())
+        vol_min = min(vol_min, v.min()); vol_max = max(vol_max, v.max())
     for phase in phases:
         for n in [1, PROJS_PER_PHASE // 2, PROJS_PER_PHASE]:
             fp = os.path.join(IM_DIR, f'{phase}_proj_{n:05d}_bin.npy')
             if os.path.exists(fp):
                 p = np.load(fp)
-                prj_min = min(prj_min, p.min())
-                prj_max = max(prj_max, p.max())
+                prj_min = min(prj_min, p.min()); prj_max = max(prj_max, p.max())
     print(f'  Vol:  [{vol_min:.4f}, {vol_max:.4f}]')
     print(f'  Proj: [{prj_min:.4f}, {prj_max:.4f}]')
     return dict(vol_min=vol_min, vol_max=vol_max, prj_min=prj_min, prj_max=prj_max)
@@ -91,15 +112,16 @@ def _norm_prj(x, s):
 
 def _load_raw_proj(phase, proj_num, stats):
     fp = os.path.join(IM_DIR, f'{phase}_proj_{proj_num:05d}_bin.npy')
-    return torch.from_numpy(
-        _norm_prj(np.load(fp), stats).astype(np.float32)
-    ).unsqueeze(0)
+    return torch.from_numpy(_norm_prj(np.load(fp), stats).astype(np.float32)).unsqueeze(0)
 
 def _load_vol_tensor(phase, stats):
     arr = _norm_vol(np.load(os.path.join(IM_DIR, f'sub_CT_{phase}_mha.npy')), stats)
-    return torch.from_numpy(
-        arr.reshape(1, IM_SIZE, IM_SIZE, IM_SIZE).astype(np.float32)
-    )
+    return torch.from_numpy(arr.reshape(1, IM_SIZE, IM_SIZE, IM_SIZE).astype(np.float32))
+
+def load_mask_tensor():
+    """Binary thoracic mask -> float tensor [1,1,D,H,W]."""
+    m = np.load(MASK_FILE).astype(np.float32).reshape(1, 1, IM_SIZE, IM_SIZE, IM_SIZE)
+    return torch.from_numpy(m)
 
 
 # ============================================================================
@@ -107,104 +129,135 @@ def _load_vol_tensor(phase, stats):
 # ============================================================================
 
 class ProjectionDataset(Dataset):
-    """Samples random (phase, projection) pairs from the training phases."""
-
-    def __init__(self, excl_vol, stats, steps_per_epoch=STEPS_PER_EPOCH):
-        self.stats           = stats
-        self.steps_per_epoch = steps_per_epoch
-        self.phases          = [p for p in ALL_VOLS if p != excl_vol and p != SOURCE_PHASE]
-
+    def __init__(self, excl_vol, stats):
+        self.stats  = stats
+        self.phases = [p for p in ALL_VOLS if p != excl_vol and p != SOURCE_PHASE]
         print('Loading source volume and target volumes...')
         self.source_vol  = _load_vol_tensor(SOURCE_PHASE, stats)
         self.target_vols = {p: _load_vol_tensor(p, stats) for p in self.phases}
 
     def __len__(self):
-        return self.steps_per_epoch
+        return len(self.phases) * PROJS_PER_PHASE
 
     def __getitem__(self, idx):
         phase    = random.choice(self.phases)
         proj_num = random.randint(1, PROJS_PER_PHASE)
         return {
-            'source_proj': _load_raw_proj(SOURCE_PHASE, proj_num, self.stats),
-            'target_proj': _load_raw_proj(phase,        proj_num, self.stats),
+            'target_proj': _load_raw_proj(phase, proj_num, self.stats),
             'source_vol':  self.source_vol.clone(),
             'target_vol':  self.target_vols[phase].clone(),
         }
 
 
 # ============================================================================
+# MASKED LOSS HELPERS
+# ============================================================================
+
+def masked_l1(pred, target, mask):
+    """Mean |pred - target| over masked voxels (per-batch safe)."""
+    diff = (pred - target).abs() * mask
+    denom = mask.sum().clamp_min(1.0)
+    return diff.sum() / denom
+
+def masked_l1_to_zero(x, mask):
+    return (x.abs() * mask).sum() / mask.sum().clamp_min(1.0)
+
+
+# ============================================================================
 # LOSS
 # ============================================================================
+#
+# Two weighting axes, each with the appropriate tool:
+#
+#  * STEP axis (deep supervision): fixed gamma^(T - t) prior. Steps are an
+#    ordered refinement SEQUENCE that we WANT to improve monotonically, not
+#    competing observations -- so a fixed ordering prior is correct here, and
+#    UW would wrongly down-weight early steps for having higher (expected) loss.
+#
+#  * TERM axis (motion vs image): uncertainty weighting via learned log-vars
+#    on the model. The clean-motion reconstruction and the motion+bounded-image
+#    reconstruction ARE competing observations of the same target, so UW is the
+#    right tool and removes the hand-set term weights.
+#
+# No smoothness term: scaling-and-squaring integration yields diffeomorphic
+# (non-folding) fields, so an explicit smoothness penalty is redundant.
 
-def compute_loss(variant, mdl, y_source, y_cycle, target_vol):
+def _uw_term(loss, log_var):
+    """Uncertainty-weighted term: 0.5 * exp(-lv) * loss + 0.5 * lv."""
+    lv = torch.clamp(log_var, min=LV_CLAMP)
+    return 0.5 * torch.exp(-lv) * loss + 0.5 * lv, lv
+
+def compute_loss(out, target_vol, mask, mode):
     """
-    proj-single : L1(warped, target)
-    proj-dual / vol-dual / vol-dual-z : uncertainty-weighted L1 for both outputs,
-        where y_cycle is now the bounded-residual-corrected volume.
+    gamma-weighted deep-supervision reconstruction, with the FINAL output's
+    motion vs image terms balanced by uncertainty weighting. Returns
+    (total, metrics_dict). All reconstruction L1s are masked.
     """
-    warp_loss = F.l1_loss(y_source, target_vol)
+    y_steps = out['y_steps']
+    T = len(y_steps) - 1   # refinement steps (0 for baseline/bigfly)
 
-    if variant == 'proj-single':
-        return warp_loss, dict(total=warp_loss.item(), warp=warp_loss.item())
+    # ── Deep supervision over steps: fixed gamma prior (normalised) ────────
+    weights = [DS_GAMMA ** (T - t) for t in range(len(y_steps))]
+    wsum    = sum(weights)
+    recon   = sum(w * masked_l1(y, target_vol, mask)
+                  for w, y in zip(weights, y_steps)) / wsum
 
-    cycle_loss = F.l1_loss(y_cycle, target_vol)
-    lv_w = torch.clamp(mdl.log_var_dvf, min=LV_CLAMP)
-    lv_c = torch.clamp(mdl.log_var_img, min=LV_CLAMP)
-    total = (0.5 * torch.exp(-lv_w) * warp_loss + 0.5 * lv_w +
-             0.5 * torch.exp(-lv_c) * cycle_loss + 0.5 * lv_c)
-    return total, dict(
-        total=total.item(), warp=warp_loss.item(), cycle=cycle_loss.item(),
-        lv_warp=lv_w.item(), lv_cycle=lv_c.item(),
-    )
+    metrics = dict(recon=float(recon.item()))
+    metrics['recon_final'] = float(masked_l1(out['y_final'], target_vol, mask).item())
 
+    if mode == 'dual':
+        # ── UW over the two competing FINAL reconstructions ────────────────
+        warp_loss  = masked_l1(out['y_flow_final'], target_vol, mask)  # clean motion
+        img_loss   = masked_l1(out['y_final'],      target_vol, mask)  # + bounded image
+        uw_w, lv_w = _uw_term(warp_loss, out['log_var_warp'])
+        uw_i, lv_i = _uw_term(img_loss,  out['log_var_img'])
 
-# ============================================================================
-# FORWARD PASS
-# ============================================================================
-
-def forward(variant, mdl, batch, device, residual_scale):
-    src_proj = batch['source_proj'].to(device)
-    tgt_proj = batch['target_proj'].to(device)
-    src_vol  = batch['source_vol'].to(device)
-    tgt_vol  = batch['target_vol'].to(device)
-
-    if variant in PROJ_VARIANTS:
-        out = mdl(src_proj, tgt_proj, src_vol)
+        # Deep supervision provides the across-step signal; UW balances the two
+        # final-output terms. Sum them.
+        total = recon + uw_w + uw_i
+        metrics.update(
+            warp=float(warp_loss.item()), img=float(img_loss.item()),
+            lv_warp=float(lv_w.item()),   lv_img=float(lv_i.item()),
+        )
     else:
-        out = mdl(src_vol, tgt_proj)
+        # Single reconstruction objective (motion only). UW on one term is
+        # degenerate, so use plain deep-supervision recon.
+        total = recon
 
-    y_source = out[0]            # DVF-warped volume (unchanged)
-    img_head = out[2]            # raw image-decoder output (None for proj-single)
-
-    if img_head is None:
-        y_cycle = None
-    else:
-        # Reinterpret the image head as a bounded residual ON TOP OF the warp.
-        # residual = scale * tanh(img_head - warped); updated = warped + residual.
-        # scale = 0 -> pure warp (control); residual cannot exceed +/- scale.
-        residual = residual_scale * torch.tanh(img_head - y_source)
-        y_cycle = y_source + residual
-
-    return y_source, y_cycle, tgt_vol
+    metrics['total'] = float(total.item())
+    return total, metrics
 
 
 # ============================================================================
 # EPOCH RUNNER
 # ============================================================================
 
-def run_epoch(variant, mdl, loader, device, residual_scale, optimizer=None):
+def run_epoch(mdl, loader, device, mask, mode, optimizer=None, freeze_img=False):
     is_train = optimizer is not None
     mdl.train() if is_train else mdl.eval()
+
+    # Optionally freeze the dual image head (warm-up the DVF first).
+    if mode == 'dual' and mdl.irb is not None:
+        for p in mdl.irb.img_up.parameters():   p.requires_grad = not freeze_img
+        for p in mdl.irb.img_head.parameters(): p.requires_grad = not freeze_img
+
     accum, n = {}, 0
     ctx = torch.enable_grad() if is_train else torch.no_grad()
     with ctx:
         for batch in loader:
-            y_source, y_cycle, tgt_vol = forward(variant, mdl, batch, device, residual_scale)
-            loss, metrics = compute_loss(variant, mdl, y_source, y_cycle, tgt_vol)
+            tgt_proj = batch['target_proj'].to(device)
+            src_vol  = batch['source_vol'].to(device)
+            tgt_vol  = batch['target_vol'].to(device)
+
+            out = mdl(src_vol, tgt_proj)
+            loss, metrics = compute_loss(out, tgt_vol, mask, mode)
+
             if is_train:
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(mdl.parameters(), 1.0)
                 optimizer.step()
+
             for k, v in metrics.items():
                 accum[k] = accum.get(k, 0.) + v
             n += 1
@@ -217,22 +270,18 @@ def run_epoch(variant, mdl, loader, device, residual_scale, optimizer=None):
 
 def _save_plot(history, title, path):
     fig, axes = plt.subplots(2, 1, figsize=(9, 9))
-
     ax = axes[0]
-    for key in ['train_warp', 'val_warp', 'train_cycle', 'val_cycle']:
+    for key in ['train_recon_final', 'val_recon_final', 'train_recon', 'val_recon']:
         if key in history:
             ax.plot(history[key], label=key, linestyle='--' if 'val' in key else '-')
-    ax.set_xlabel('Epoch'); ax.set_ylabel('L1 loss'); ax.set_title(title); ax.legend()
+    ax.set_xlabel('Epoch'); ax.set_ylabel('Masked L1'); ax.set_title(title); ax.legend()
 
     ax2 = axes[1]
-    for key in ['train_lv_warp', 'val_lv_warp', 'train_lv_cycle', 'val_lv_cycle']:
+    for key in ['train_lv_warp', 'val_lv_warp', 'train_lv_img', 'val_lv_img']:
         if key in history:
             ax2.plot(history[key], label=key, linestyle='--' if 'val' in key else '-')
-    if any(k.startswith('train_lv') for k in history):
-        ax2.axhline(LV_WARN,  color='red',  linestyle=':', linewidth=1, label=f'warn ({LV_WARN})')
-        ax2.axhline(LV_CLAMP, color='blue', linestyle=':', linewidth=1, label=f'clamp ({LV_CLAMP})')
-    ax2.set_xlabel('Epoch'); ax2.set_ylabel('log σ²'); ax2.set_title('Uncertainty weights'); ax2.legend()
-
+    ax2.set_xlabel('Epoch'); ax2.set_ylabel('log σ²')
+    ax2.set_title('Uncertainty weights (motion vs image)'); ax2.legend()
     plt.tight_layout(); plt.savefig(path); plt.close()
 
 
@@ -240,60 +289,56 @@ def _save_plot(history, title, path):
 # TRAINING LOOP
 # ============================================================================
 
-def train(variant, excl_vol, device, residual_scale):
+def train(mode, num_irb, excl_vol, device):
     cfg = TRAIN_CONFIG
     print(f'\n{"=" * 60}')
-    print(f'  Variant: {variant}   Excl: {excl_vol}   Residual scale: {residual_scale:g}')
+    print(f'  Mode: {mode}   num_irb: {num_irb}   Excl: {excl_vol}')
     print(f'  Epochs: {cfg["epochs"]}   LR: {cfg["lr"]}   Device: {device}')
     print(f'{"=" * 60}\n')
 
     stats   = compute_global_stats(excl_vol)
     dataset = ProjectionDataset(excl_vol, stats)
-    mdl     = build_model(variant, im_size=IM_SIZE, int_steps=INT_STEPS).to(device)
+    mask    = load_mask_tensor().to(device)
+    mdl     = build_model(mode, num_irb=num_irb, im_size=IM_SIZE,
+                          int_steps=INT_STEPS, img_eps=IMG_EPS).to(device)
     opt     = optim.Adam(mdl.parameters(), lr=cfg['lr'])
 
-    history = {}
-    best    = float('inf')
-    tic     = time.time()
+    history, best, tic = {}, float('inf'), time.time()
 
     def _split(ds, frac=0.9):
-        n = int(len(ds) * frac)
-        return random_split(ds, [n, len(ds) - n])
+        n = int(len(ds) * frac); return random_split(ds, [n, len(ds) - n])
 
     def _loader(ds, shuffle=True):
         return DataLoader(ds, batch_size=cfg['batch_size'], shuffle=shuffle,
                           num_workers=0, pin_memory=False)
 
     for epoch in range(1, cfg['epochs'] + 1):
+        freeze_img = (mode == 'dual') and (epoch <= IMG_FREEZE_EPOCHS)
         tr_set, vl_set = _split(dataset)
-        tr = run_epoch(variant, mdl, _loader(tr_set),        device, residual_scale, opt)
-        vl = run_epoch(variant, mdl, _loader(vl_set, False), device, residual_scale)
+        tr = run_epoch(mdl, _loader(tr_set),        device, mask, mode, opt, freeze_img)
+        vl = run_epoch(mdl, _loader(vl_set, False), device, mask, mode)
 
         for k, v in tr.items(): history.setdefault(f'train_{k}', []).append(v)
         for k, v in vl.items(): history.setdefault(f'val_{k}',   []).append(v)
 
-        for k, v in tr.items():
-            if k.startswith('lv_') and v > LV_WARN:
-                print(f'  WARNING epoch {epoch}: {k}={v:.2f}')
-
         elapsed = (time.time() - tic) / 3600
-        main_metrics = ' '.join(f'{k}:{v:.4f}' for k, v in tr.items() if not k.startswith('lv_'))
-        val_metrics  = ' '.join(f'{k}:{v:.4f}' for k, v in vl.items() if not k.startswith('lv_'))
-        line = f'[{elapsed:.2f}h] Epoch {epoch:3d} | {main_metrics}  ||  {val_metrics}'
-        print(line)
+        tr_s = ' '.join(f'{k}:{v:.4f}' for k, v in tr.items())
+        vl_s = ' '.join(f'{k}:{v:.4f}' for k, v in vl.items())
+        fz   = '  [img frozen]' if freeze_img else ''
+        print(f'[{elapsed:.2f}h] Epoch {epoch:3d} | {tr_s}  ||  {vl_s}{fz}')
         sys.stdout.flush()
 
-        metric = vl.get('warp', 0.) + vl.get('cycle', 0.)
+        metric = vl.get('recon_final', vl.get('recon', 0.))
         if metric < best:
             best = metric
-            torch.save({'model': mdl.state_dict()}, ckpt_path(variant, excl_vol, residual_scale))
+            torch.save({'model': mdl.state_dict(),
+                        'mode': mode, 'num_irb': num_irb}, ckpt_path(mode, num_irb, excl_vol))
 
-        _save_plot(history, f'{variant} / excl{excl_vol} / rs{residual_scale:g}',
-                   plot_path(variant, excl_vol, residual_scale))
+        _save_plot(history, f'{tag(mode, num_irb)} / excl{excl_vol}',
+                   plot_path(mode, num_irb, excl_vol))
 
-    print(f'\nDone. Best val metric: {best:.4f}')
-    print(f'Checkpoint: {ckpt_path(variant, excl_vol, residual_scale)}')
-    return best
+    print(f'\nDone. Best val recon_final: {best:.4f}')
+    print(f'Checkpoint: {ckpt_path(mode, num_irb, excl_vol)}')
 
 
 # ============================================================================
@@ -302,22 +347,21 @@ def train(variant, excl_vol, device, residual_scale):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--variant',  required=True,
-                        choices=['proj-single', 'proj-dual', 'vol-dual', 'vol-dual-z'])
+    parser.add_argument('--mode',     required=True,
+                        choices=['baseline', 'dvf', 'dual', 'bigfly'])
+    parser.add_argument('--num_irb',  type=int, default=0, choices=[0, 1, 2, 3])
     parser.add_argument('--excl_vol', required=True, choices=ALL_VOLS)
     parser.add_argument('--gpu',      type=int, default=0)
-    parser.add_argument('--residual_scale', type=float, default=0.1,
-                        help='Residual bound. 0 = pure warp (control).')
     args = parser.parse_args()
 
-    if args.variant == 'proj-single' and args.residual_scale != 0.0:
-        print('Note: proj-single has no image head; residual_scale is ignored.')
+    if args.mode in ('dvf', 'dual') and args.num_irb == 0:
+        parser.error(f'--mode {args.mode} requires --num_irb >= 1')
 
     device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu')
     for d in ('weights', 'plots', 'logs'):
         os.makedirs(d, exist_ok=True)
 
-    lp = log_path(args.variant, args.excl_vol, args.residual_scale)
+    lp = log_path(args.mode, args.num_irb, args.excl_vol)
 
     class Tee:
         def __init__(self, *streams): self.streams = streams
@@ -329,9 +373,8 @@ def main():
     log_file   = open(lp, 'w')
     sys.stdout = Tee(sys.__stdout__, log_file)
     sys.stderr = Tee(sys.__stderr__, log_file)
-
     try:
-        train(args.variant, args.excl_vol, device, args.residual_scale)
+        train(args.mode, args.num_irb, args.excl_vol, device)
     finally:
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
