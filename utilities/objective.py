@@ -8,9 +8,8 @@ the c-step descend the same function.
 """
 import numpy as np
 import torch
-
-from voxelmap.model import invert_dvf, warp
-from voxelmap.projector import project
+from utilities.model import invert_dvf, warp
+from utilities.projector import project
 
 
 def prj_rows(drr, y, prj_scale, huber_delta=None):
