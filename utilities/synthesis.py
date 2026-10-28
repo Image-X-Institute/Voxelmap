@@ -7,12 +7,10 @@ no phase label is read -- and rendered at angles over the whole arc. Only the
 geometry and the solved model enter; no held-out measurement is read.
 """
 import time
-
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-from voxelmap.data import N_ANGLES
+from utilities.data import N_ANGLES
 
 
 def sample_scores(w, views, n, rng):
