@@ -58,11 +58,26 @@ pairs for 100 epochs. Every field of `voxelmap/config.py` is also a flag. These 
 The output, under `runs/`, is a checkpoint holding the motion model, the
 encoder, and the solved scores, plus the stage-1 loss curve.
 
+## Testing
+
+```bash
+python test.py runs/case8_s0.pt --gpu 0
+```
+
+Each held-out view (one not solved in stage 1) is passed through the encoder
+alone, the reference is warped by the predicted DVF, and the result is
+compared with the true phase volume. The script prints the RMSE per view and the mean,
+against the static reference as a baseline. `--stride` sets how many held-out
+views are evaluated. It then shows a coronal-slice figure for the `--n-fig` views
+furthest from the reference, with the panels reference, warped, ground truth,
+unwarped − truth and warped − truth.
+
 ## Layout
 
 ```
 train.py               stage 1 then stage 2, one case
-voxelmap/
+test.py                held-out evaluation and figure
+utilities/
   config.py            run settings
   data.py              DIR-Lab reading and cropping; the simulated ventilated arc
   projector.py         differentiable cone-beam projection (ASTRA)
