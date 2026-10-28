@@ -14,13 +14,13 @@ for f in fields(Config):
 A = P.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES'] = str(A.gpu)
 
-import torch                                                   # noqa: E402
-import torch.nn.functional as F                                # noqa: E402
+import torch                                                   
+import torch.nn.functional as F                                
 
-from utilities import als, data as D, synthesis                 # noqa: E402
-from utilities.model import BSplineModel, MotionEnc, base_grid, polynomial_init  # noqa: E402
-from utilities.objective import Ops                             # noqa: E402
-from utilities.projector import Projector                       # noqa: E402
+from utilities import als, data as D, synthesis                 
+from utilities.model import BSplineModel, MotionEnc, base_grid, polynomial_init  
+from utilities.objective import Ops                             
+from utilities.projector import Projector                      
 
 cfg = Config(**{f.name: getattr(A, f.name) for f in fields(Config)})
 dev = 'cuda'
