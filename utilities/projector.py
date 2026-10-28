@@ -3,8 +3,7 @@ import astra
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-from voxelmap.data import norm_prj
+from utilities.data import norm_prj
 
 
 def cone_vec(geo, det_spacing, voxel_mm):
