@@ -20,9 +20,10 @@ classifiers = [
 dependencies = [
     "numpy>=1.21",
     "torch>=1.13",
+    "matplotlib>=3.5",
 ]
 
 # ASTRA (the cone-beam projector) is conda-installable only; see README.
 
 [tool.setuptools.packages.find]
-include = ["voxelmap*"]
+include = ["utilities*"]
