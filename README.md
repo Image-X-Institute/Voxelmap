@@ -1,7 +1,6 @@
 # VM-DS
 
-Real-time volumetric respiratory motion from a single x-ray projection for
-image-guided interventions.
+Companion code for the arxiv paper [VM-DS](https://arxiv.org/abs/2610.34792)
 
 ## What this does
 
