@@ -4,7 +4,7 @@ This builds on
 [VM-DS](https://arxiv.org/abs/2610.34792), which learns a patient-specific motion model on the day of
 an intervention and then infers a 3D volume from each 2D x-ray projection in a single forward pass.
 Here the image-space self-consistency regularizer of VM-DS is replaced by a hyperelastic volume
-penalty on the deformation, compared against nine other regularizers.
+penalty on the deformation. We also include the other regularizers explored in our ablation study.
 
 ## What this does
 
