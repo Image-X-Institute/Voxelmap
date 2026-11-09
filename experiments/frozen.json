@@ -1,0 +1,124 @@
+{
+ "lsc": {
+  "name": "self-consistency (VM-DS baseline)",
+  "flags": "",
+  "held_out": true
+ },
+ "none": {
+  "name": "no regularizer",
+  "flags": "--sc-lambda 0 --c-accept 1",
+  "held_out": true
+ },
+ "svf": {
+  "name": "stationary velocity field",
+  "flags": "--sc-lambda 0 --svf-steps 10 --c-micro 8 --c-accept 1",
+  "held_out": true
+ },
+ "bending": {
+  "name": "bending energy",
+  "flags": "--sc-lambda 0 --reg bending --reg-lambda 3e-2 --c-accept 1",
+  "held_out": true,
+  "lam": "3e-2",
+  "lambda_grid": [
+   "1e-3",
+   "3e-3",
+   "1e-2",
+   "3e-2",
+   "1e-1",
+   "3e-1",
+   "1"
+  ]
+ },
+ "diffusion": {
+  "name": "diffusion",
+  "flags": "--sc-lambda 0 --reg diffusion --reg-lambda 1e-3",
+  "held_out": true,
+  "lam": "1e-3",
+  "lambda_grid": [
+   "1e-4",
+   "3e-4",
+   "1e-3",
+   "3e-3"
+  ]
+ },
+ "selfcon": {
+  "name": "first-order inverse consistency",
+  "flags": "--sc-lambda 0 --reg selfcon --reg-lambda 3e-4 --c-accept 1",
+  "held_out": true,
+  "lam": "3e-4",
+  "lambda_grid": [
+   "1e-5",
+   "3e-5",
+   "1e-4",
+   "3e-4",
+   "1e-3",
+   "3e-3",
+   "1e-2"
+  ]
+ },
+ "tv": {
+  "name": "isotropic total variation",
+  "flags": "--sc-lambda 0 --reg tv --reg-lambda 1e-3",
+  "held_out": true,
+  "lam": "1e-3",
+  "lambda_grid": [
+   "3e-5",
+   "1e-4",
+   "3e-4",
+   "1e-3",
+   "3e-3",
+   "1e-2",
+   "3e-2"
+  ]
+ },
+ "jneg": {
+  "name": "negative-Jacobian hinge",
+  "flags": "--sc-lambda 0 --reg jneg --reg-lambda 3e-1 --c-accept 1",
+  "held_out": false,
+  "lam": "3e-1",
+  "lambda_grid": [
+   "3e-2",
+   "1e-1",
+   "3e-1",
+   "1",
+   "10"
+  ]
+ },
+ "logj": {
+  "name": "|log det J|",
+  "flags": "--sc-lambda 0 --reg logj --reg-lambda 3e-3",
+  "held_out": true,
+  "lam": "3e-3",
+  "lambda_grid": [
+   "3e-4",
+   "1e-3",
+   "3e-3",
+   "1e-2"
+  ]
+ },
+ "cbound": {
+  "name": "control-point injectivity bound",
+  "flags": "--sc-lambda 0 --ctrl-bound 2 --c-accept 1",
+  "held_out": false,
+  "lam": "2",
+  "lambda_grid": [
+   "1",
+   "2"
+  ]
+ },
+ "hyper": {
+  "name": "hyperelastic volume term",
+  "flags": "--sc-lambda 0 --hyper-lambda 1e-1 --c-accept 1",
+  "held_out": true,
+  "lam": "1e-1",
+  "lambda_grid": [
+   "1e-3",
+   "1e-2",
+   "3e-2",
+   "1e-1",
+   "3e-1",
+   "1",
+   "3"
+  ]
+ }
+}
