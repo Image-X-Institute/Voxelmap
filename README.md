@@ -1,8 +1,10 @@
-# VM-DS
+# VoxelMap-DualScan
 
 We propose just-in-time volumetric imaging, in which a patient-specific 2D--3D motion model is trained on pre-intervention scans before it is needed and then supplies volumetric images from single fluoroscopic projections during sampling. Given the inspiration-hold CBCT already acquired for navigation and an additional motion-inclusive CBCT, our optimization regime named VoxelMap-DualScan (VM-DS), solves a low-rank motion model by alternating least squares and then amortizes it into a projection encoder trained on synthesized projections with known motion, all within minutes.
 
 If you use the code, please cite: ["Just-in-time volumetric imaging: Learning 2D-3D thoracic motion models during image-guided interventions"](https://arxiv.org/abs/2610.34792)
+
+(Note: this has now been superseded by our method and code that leverages hyperelastic regularization in the ["hyper"](https://github.com/Image-X-Institute/Voxelmap/tree/hyper) branch)
 
 ## What this does
 
