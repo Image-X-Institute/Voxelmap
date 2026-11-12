@@ -7,8 +7,8 @@ penalty on the deformation. We also include the other regularizers explored in o
 
 If you use the code, please cite:
 
-*[Hyperelasticity as an efficient regularizer for 2D-3D thoracic motion models](https://arxiv.org/abs/2611.11643)
-*[Just-in-time volumetric imaging: Learning 2D-3D thoracic motion models during image-guided interventions](https://arxiv.org/abs/2610.34792)
+* ["Hyperelasticity as an efficient regularizer for 2D-3D thoracic motion models"](https://arxiv.org/abs/2611.11643)
+* ["Just-in-time volumetric imaging: Learning 2D-3D thoracic motion models during image-guided interventions"](https://arxiv.org/abs/2610.34792)
 
 ## What this does
 
