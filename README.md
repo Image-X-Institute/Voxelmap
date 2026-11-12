@@ -123,17 +123,6 @@ experiments/           frozen settings, run and summary scripts
 analysis/              folding of deployed fields; decomposition of self-consistency
 ```
 
-## Citation
-
-```bibtex
-@article{hindley2026hyper,
-  author  = {Hindley, Nicholas},
-  title   = {Hyperelasticity as an efficient regularizer for {2D--3D} thoracic motion models},
-  journal = {arXiv preprint},
-  year    = {2026}
-}
-```
-
 ## Licence
 
 Source code is MIT (see `LICENSE`). **Patent rights are reserved separately: see `NOTICE`.** The
