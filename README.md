@@ -3,7 +3,7 @@
 This builds on VM-DS which learns a patient-specific motion model on the day of
 an intervention and then infers a 3D volume from each 2D x-ray projection in a single forward pass.
 Here the image-space self-consistency regularizer of VM-DS is replaced by a hyperelastic volume
-penalty on the deformation. The hyperelastic variant trained 1.5x faster and had no folded voxel in any held-out view of the DIR-Lab 4D dataset, whereas baseline fields folded in 83 % of views.
+penalty on the deformation. The hyperelastic variant trained 1.5x faster and had no folded voxel in any held-out view of the DIR-Lab 4D dataset, whereas baseline fields folded in 83% of views.
 
 If you use the code, please cite:
 
