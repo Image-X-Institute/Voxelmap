@@ -1,10 +1,14 @@
 # Hyperelasticity as an efficient regularizer for 2D–3D thoracic motion models
 
-This builds on
-[VM-DS](https://arxiv.org/abs/2610.34792), which learns a patient-specific motion model on the day of
+This builds on VM-DS which learns a patient-specific motion model on the day of
 an intervention and then infers a 3D volume from each 2D x-ray projection in a single forward pass.
 Here the image-space self-consistency regularizer of VM-DS is replaced by a hyperelastic volume
 penalty on the deformation. We also include the other regularizers explored in our ablation study.
+
+If you use the code, please cite:
+
+*[Hyperelasticity as an efficient regularizer for 2D-3D thoracic motion models](https://arxiv.org/abs/2611.11643)
+*[Just-in-time volumetric imaging: Learning 2D-3D thoracic motion models during image-guided interventions](https://arxiv.org/abs/2610.34792)
 
 ## What this does
 
