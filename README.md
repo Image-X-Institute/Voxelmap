@@ -6,8 +6,6 @@ If you use the code, please cite: ["Just-in-time volumetric imaging: Learning 2D
 
 (Note: this has now been superseded by our method and code that leverages hyperelastic regularization in the ["hyper"](https://github.com/Image-X-Institute/Voxelmap/tree/hyper) branch)
 
-The training and evaluation leverage the excellent [DIR-lab 4D-CT dataset](https://med.emory.edu/departments/radiation-oncology/research-laboratories/deformable-image-registration/downloads-and-reference-data/4dct.html)
-
 ## What this does
 
 During an interventional procedure a breath-hold (DIBH) CBCT is already
